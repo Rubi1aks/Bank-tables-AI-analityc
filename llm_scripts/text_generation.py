@@ -2,10 +2,48 @@ from gigachat import GigaChat
 from gigachat.models import Chat, Messages
 from dotenv import load_dotenv
 import os
+import pandas as pd
 
 load_dotenv()
 
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+
+
+def gigachat_anomalies(anomalies: pd.DataFrame) -> str:
+    promt = (
+        "Ты анализируешь таблицу с аномалиями временного ряда.\n"
+        "Твоя задача - описать каждую аномалию простым деловым языком.\n\n"
+        "Правила:\n"
+        "1. Используй только данные из таблицы.\n"
+        "2. Не добавляй никаких предположений или анализа вне данных.\n"
+        "3. Для каждой строки, где anomaly = True, сформируй одно предложение.\n"
+        "4. Игнорируй строки где anomaly = False.\n"
+        "5. Формат предложения строго такой:\n"
+        "   'Внимание, в {месяц} {год} года обнаружен {тип аномалии} метрики на {pct_change:.2f}%.'\n"
+        "6. Тип аномалии переводи так:\n"
+        "   spike - резкий скачок\n"
+        "   drop - резкое падение\n"
+        "   outlier - аномальное изменение\n"
+        "7. Месяц и год бери из date (формат YYYY-MM-DD).\n"
+        "8. Если pct_change отрицательный, говори 'снижение', если положительный - 'рост'.\n"
+        "9. Ответ должен быть списком предложений без заголовков и без пояснений.\n\n"
+        "Вот данные:\n"
+    )
+    with GigaChat(credentials=AUTH_TOKEN, verify_ssl_certs=False) as giga:
+        try:
+            payload = Chat(
+                model="GigaChat-Pro",
+                messages=[Messages(role="user", content=promt + str(anomalies))],
+                temperature=0.6,
+                max_tokens=1000
+            )
+            response = giga.chat(payload)
+            print(response.choices[0].message.content.strip())
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            return f"Error: {e}"
+
 
 def gigachat_text(data: str) -> str:
     promt = "Ты - ведущий FinTech-аналитик. Твоя задача - провести экспресс-анализ " \

@@ -3,19 +3,27 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from prophet import Prophet
 import pandas as pd
 import numpy as np
+from text_generation import gigachat_anomalies
+
+import pandas as pd
+import numpy as np
 
 
-def detect_anomalies(data: dict[int, dict[int, float]], window: int = 6, context: int = 2)-> pd.DataFrame:
+def detect_anomalies(data: dict[int, dict[int, float]], window: int = 6, context: int = 2) -> pd.DataFrame:
     series = data_transformation(data)
+
     mean = series.rolling(window).mean()
     std = series.rolling(window).std()
 
     z = (series - mean) / std
 
+    pct_change = (series - mean) / mean * 100
+
     result = []
     anomaly_flags = []
 
-    for date, value, z_score in zip(series.index, series.values, z.values):
+    for date, value, z_score, pct in zip(series.index, series.values, z.values, pct_change.values):
+
         if np.isnan(z_score) or abs(z_score) <= 2:
             anomaly = False
             atype = "normal"
@@ -32,12 +40,18 @@ def detect_anomalies(data: dict[int, dict[int, float]], window: int = 6, context
             anomaly = True
             atype = "outlier"
 
-        result.append([date, value, anomaly, atype])
+        result.append([date, value, anomaly, atype, pct])
         anomaly_flags.append(anomaly)
 
-    df = pd.DataFrame(result, columns=["date", "value", "anomaly", "type"])
+    df = pd.DataFrame(
+        result,
+        columns=["date", "value", "anomaly", "type", "pct_change"]
+    )
+
     anomaly_idx = df[df["anomaly"]].index
+
     keep_idx = set()
+
     for idx in anomaly_idx:
         for i in range(idx - context, idx + context + 1):
             if 0 <= i < len(df):
@@ -46,6 +60,7 @@ def detect_anomalies(data: dict[int, dict[int, float]], window: int = 6, context
     df = df.iloc[sorted(keep_idx)].reset_index(drop=True)
 
     return df
+
 
 def data_transformation(data: dict[int, dict[int, float]]) -> pd.Series:
     values = {}
@@ -116,6 +131,7 @@ if __name__ == "__main__":
     }
 
     print(detect_anomalies(input_data))
+    print(gigachat_anomalies(detect_anomalies(input_data)))
     #print (exponential_smoothing(input_data, 12))
     #print (sarimax_prediction(input_data, 12))
     #print (prophet_prediction(input_data, 12))
