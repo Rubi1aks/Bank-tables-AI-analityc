@@ -76,7 +76,6 @@ def analyze_anomalies(payload: AnomalyTableRequest):
 @app.post("/api/analysis/region")
 def analyze_region(payload: RegionAnalysisRequest):
     try:
-        # Передаем структуру в виде строки или адаптируем под нужды gigachat_text
         result_text = gigachat_text(str(payload.data))
         return {"analysis": result_text}
     except Exception as e:
