@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pandas
+statsmodels
+prophet
+gigachat
+python-dotenv
