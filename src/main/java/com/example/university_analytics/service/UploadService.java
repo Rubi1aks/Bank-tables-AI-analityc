@@ -1,50 +1,83 @@
 package com.example.universityanalytics.service;
 
-import org.springframework.scheduling.annotation.Async;
+import com.example.universityanalytics.entity.FactEntity;
+import com.example.universityanalytics.repository.FactRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
-public class UploadService {
+public class UploadDataService {
 
-    private final ProgressService progressService;
+    private final FactRepository factRepository;
+    private final ExcelParserService excelParserService;
 
-    // Конструктор
-    public UploadService(ProgressService progressService) {
-        this.progressService = progressService;
+    public UploadDataService(FactRepository factRepository, ExcelParserService excelParserService) {
+        this.factRepository = factRepository;
+        this.excelParserService = excelParserService;
     }
 
-    @Async
-    public void processFileAsync(MultipartFile file, String uploadId) {
-        try {
-            progressService.sendProgress(uploadId, "VALIDATING", 0, "Проверка файла...");
-            Thread.sleep(1000);
+    @Transactional
+    public void uploadAndUpsert(MultipartFile file) throws Exception {
+        List<FactEntity> newFacts = excelParserService.parseExcel(file);
 
-            progressService.sendProgress(uploadId, "PARSING", 20, "Чтение данных из файла...");
-            Thread.sleep(1500);
+        // 1. Группируем по (period, subject)
+        var groupByKey = newFacts.stream()
+                .collect(Collectors.groupingBy(f -> f.getPeriod() + "|" + f.getSubject()));
 
-            progressService.sendProgress(uploadId, "PARSING", 40, "Обработка строк: 500 из 1000");
-            Thread.sleep(1000);
+        // 2. Для каждой группы: удаляем старые, вставляем новые
+        for (var entry : groupByKey.entrySet()) {
+            String[] parts = entry.getKey().split("\\|");
+            String period = parts[0];
+            String subject = parts[1];
+            List<FactEntity> factsForThisCell = entry.getValue();
 
-            progressService.sendProgress(uploadId, "SAVING", 55, "Сохранение данных в БД...");
-            Thread.sleep(1500);
+            // Удаляем старые данные за этот период и регион
+            factRepository.deleteByPeriodAndSubject(period, subject);
 
-            progressService.sendProgress(uploadId, "SAVING", 70, "Сохранение завершено");
-            Thread.sleep(500);
-
-            progressService.sendProgress(uploadId, "REFRESHING_VIEWS", 80, "Обновление аналитических представлений...");
-            Thread.sleep(2000);
-
-            progressService.sendProgress(uploadId, "REFRESHING_VIEWS", 95, "Представления обновлены");
-            Thread.sleep(500);
-
-            progressService.sendCompleted(uploadId, "Загрузка завершена! Данные готовы для анализа.");
-
-        } catch (InterruptedException e) {
-            progressService.sendProgress(uploadId, "ERROR", 0, "Ошибка: " + e.getMessage());
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            progressService.sendProgress(uploadId, "ERROR", 0, "Ошибка: " + e.getMessage());
+            // Вставляем новые
+            factRepository.saveAll(factsForThisCell);
         }
+
+        // 3. Добавляем нулевые значения для новых показателей
+        addMissingIndicators(newFacts);
+    }
+
+    private void addMissingIndicators(List<FactEntity> newFacts) {
+        Set<String> existingIndicators = Set.copyOf(factRepository.findDistinctIndicators());
+        Set<String> newIndicators = newFacts.stream()
+                .map(FactEntity::getIndicator)
+                .collect(Collectors.toSet());
+
+        Set<String> missingIndicators = newIndicators.stream()
+                .filter(i -> !existingIndicators.contains(i))
+                .collect(Collectors.toSet());
+
+        if (missingIndicators.isEmpty()) return;
+
+        // Для всех существующих (period, subject) добавляем missingIndicators со значением 0
+        List<String> allPeriods = factRepository.findAll().stream()
+                .map(FactEntity::getPeriod).distinct().toList();
+        List<String> allSubjects = factRepository.findAll().stream()
+                .map(FactEntity::getSubject).distinct().toList();
+
+        List<FactEntity> zeroFacts = new ArrayList<>();
+        for (String period : allPeriods) {
+            for (String subject : allSubjects) {
+                for (String indicator : missingIndicators) {
+                    FactEntity zero = new FactEntity();
+                    zero.setPeriod(period);
+                    zero.setSubject(subject);
+                    zero.setIndicator(indicator);
+                    zero.setUnit("чел"); // или дефолтный
+                    zero.setValue(0.0);
+                    zeroFacts.add(zero);
+                }
+            }
+        }
+        factRepository.saveAll(zeroFacts);
     }
 }
