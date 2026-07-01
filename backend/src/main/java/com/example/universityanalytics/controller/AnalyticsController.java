@@ -4,9 +4,7 @@ import com.example.universityanalytics.dto.ScenarioParams;
 import com.example.universityanalytics.dto.ScenarioResponse;
 import com.example.universityanalytics.entity.FactEntity;
 import com.example.universityanalytics.repository.FactRepository;
-import com.example.universityanalytics.service.DriversService;
-import com.example.universityanalytics.service.ScenarioService;
-import com.example.universityanalytics.service.UploadDataService;
+import com.example.universityanalytics.service.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,22 +29,28 @@ public class AnalyticsController {
     private final UploadDataService uploadDataService;
     private final DriversService driversService;
     private final ScenarioService scenarioService;
-
-    // Можно добавить PythonClientService, если понадобится для /news и /anomalies
-    // private final PythonClientService pythonClientService;
+    private final SeasonalityService seasonalityService;
+    private final ForecastService forecastService;
+    private final PythonClientService pythonClientService;
 
     public AnalyticsController(FactRepository factRepository,
                                UploadDataService uploadDataService,
                                DriversService driversService,
-                               ScenarioService scenarioService) {
+                               ScenarioService scenarioService,
+                               SeasonalityService seasonalityService,
+                               ForecastService forecastService,
+                               PythonClientService pythonClientService) {
         this.factRepository = factRepository;
         this.uploadDataService = uploadDataService;
         this.driversService = driversService;
         this.scenarioService = scenarioService;
+        this.seasonalityService = seasonalityService;
+        this.forecastService = forecastService;
+        this.pythonClientService = pythonClientService;
     }
 
     // ============================================================
-    // 1. Факты (исторические данные)
+    // 1. ФАКТЫ (исторические данные)
     // ============================================================
     @GetMapping("/facts")
     public ResponseEntity<List<FactEntity>> getFacts(@RequestParam(required = false) String subject) {
@@ -57,7 +61,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 2. Справочники
+    // 2. СПРАВОЧНИКИ
     // ============================================================
     @GetMapping("/regions")
     public ResponseEntity<List<String>> getRegions() {
@@ -70,7 +74,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 3. Загрузка файла (с прогрессом через WebSocket)
+    // 3. ЗАГРУЗКА ФАЙЛА
     // ============================================================
     @PostMapping("/upload")
     public ResponseEntity<Map<String, String>> uploadFile(@RequestParam("file") MultipartFile file) {
@@ -89,27 +93,76 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 4. Драйверы для графика (вкладка "Текущие данные")
+    // 4. ДРАЙВЕРЫ (теперь любой показатель!)
     // ============================================================
     @GetMapping("/analytics/drivers")
-    public ResponseEntity<List<DriversService.DriverRow>> getDrivers(@RequestParam String subject) {
-        return ResponseEntity.ok(driversService.getDrivers(subject));
+    public ResponseEntity<List<DriversService.DriverRow>> getDrivers(
+            @RequestParam String subject,
+            @RequestParam String indicator) {
+        return ResponseEntity.ok(driversService.getDrivers(subject, indicator));
     }
 
     // ============================================================
-    // 5. Сценарии (4 стандартных + кастомный)
+    // 5. СЕЗОННОСТЬ (любой показатель!)
+    // ============================================================
+    @GetMapping("/seasonality")
+    public ResponseEntity<Map<Integer, Double>> getSeasonality(
+            @RequestParam String subject,
+            @RequestParam String indicator) {
+        return ResponseEntity.ok(seasonalityService.calculateSeasonality(subject, indicator));
+    }
+
+    // ============================================================
+    // 6. ПРОГНОЗ (любой показатель!)
+    // ============================================================
+    @GetMapping("/forecast")
+    public ResponseEntity<Map<String, Object>> getForecast(
+            @RequestParam String subject,
+            @RequestParam String indicator,
+            @RequestParam(defaultValue = "6") int horizon,
+            @RequestParam(defaultValue = "sarimax") String method) {
+
+        List<FactEntity> facts = factRepository.findBySubject(subject);
+        Map<Integer, Map<Integer, Double>> history = buildHistory(facts, indicator);
+
+        if (history.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
+        JsonNode pythonResult = pythonClientService.callPredict(subject, indicator, horizon, method, history);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        if (pythonResult != null) {
+            response.put("method", method);
+            response.put("indicator", indicator);
+            response.put("subject", subject);
+            response.put("points", pythonResult.path("points"));
+            response.put("qualityScore", pythonResult.path("qualityScore").asDouble(0.12));
+        } else {
+            response.put("error", "Python-сервис недоступен");
+            response.put("method", method);
+            response.put("indicator", indicator);
+            response.put("subject", subject);
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    // ============================================================
+    // 7. СЦЕНАРИИ (любой показатель!)
     // ============================================================
     @GetMapping("/scenarios")
     public ResponseEntity<List<ScenarioResponse>> getScenarios(
             @RequestParam String subject,
-            @RequestParam(defaultValue = "6") int horizonMonths) {
-        return ResponseEntity.ok(scenarioService.getDefaultScenarios(subject, horizonMonths));
+            @RequestParam String indicator,
+            @RequestParam(defaultValue = "6") int horizon) {
+        return ResponseEntity.ok(scenarioService.getDefaultScenarios(subject, indicator, horizon));
     }
 
     @PostMapping("/scenarios/compute")
     public ResponseEntity<ScenarioResponse> computeScenario(@RequestBody ScenarioParams params) {
         ScenarioResponse response = scenarioService.computeCustomScenario(
                 params.getTargetSubject(),
+                params.getTargetIndicator(),
                 params.getHorizonMonths(),
                 params.getMethod(),
                 params.getDriverMultipliers()
@@ -118,62 +171,136 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 6. AI-аналитика (новости, аномалии, резюме)
+    // 8. AI-АНАЛИТИКА
     // ============================================================
-    // Эти методы можно оставить как заглушки или вызывать PythonClientService
+    // ============================================================
+// 8. AI-АНАЛИТИКА (теперь POST!)
+// ============================================================
 
-    @GetMapping("/news")
-    public ResponseEntity<List<Map<String, Object>>> getNews(@RequestParam String subject) {
-        // Заглушка — вернуть фиктивные новости
-        List<Map<String, Object>> news = List.of(
-                Map.of(
-                        "id", "1",
-                        "title", "Старт учебного года: вузы вернулись к очному формату",
-                        "source", "РБК",
-                        "date", "2025-09",
-                        "summary", "Начало семестра повышает посещаемость столовых — рост числа клиентов.",
-                        "impact", "positive"
-                ),
-                Map.of(
-                        "id", "2",
-                        "title", "Летние каникулы снизили трафик общепита у вузов",
-                        "source", "Коммерсантъ",
-                        "date", "2025-07",
-                        "summary", "В июле-августе доля питающихся в студенческих столовых падает.",
-                        "impact", "negative"
-                )
-        );
+    // ============================================================
+// 8. AI-АНАЛИТИКА (динамические показатели!)
+// ============================================================
+
+    @PostMapping("/news")
+    public ResponseEntity<List<Map<String, Object>>> getNews(@RequestBody Map<String, Object> request) {
+        String subject = (String) request.getOrDefault("subject", "");
+        int period = request.containsKey("period") ? (int) request.get("period") : 90;
+
+        // ✅ Получаем список ВСЕХ показателей из БД (динамически!)
+        List<String> indicators = factRepository.findDistinctIndicators();
+        log.info("Запрос новостей для региона: {}, период: {} дней, показателей: {}", subject, period, indicators.size());
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("subject", subject);
+        data.put("period", period);
+        data.put("indicators", indicators);  // ← передаём в Python
+
+        JsonNode result = pythonClientService.callGenerateNews(data);
+        List<Map<String, Object>> news = new ArrayList<>();
+
+        if (result != null && result.has("news")) {
+            JsonNode newsNode = result.path("news");
+            for (JsonNode item : newsNode) {
+                Map<String, Object> newsItem = new HashMap<>();
+                newsItem.put("title", item.path("title").asText("Новость"));
+                newsItem.put("summary", item.path("summary").asText());
+                newsItem.put("source", item.path("source").asText("Источник"));
+                newsItem.put("date", item.path("date").asText(""));
+                newsItem.put("url", item.path("url").asText(""));
+                newsItem.put("impact", item.path("impact").asText("neutral"));
+                news.add(newsItem);
+            }
+        } else {
+            news.add(Map.of(
+                    "title", "Новости по региону " + subject,
+                    "summary", "Новости временно недоступны.",
+                    "source", "Система",
+                    "date", java.time.LocalDate.now().toString(),
+                    "url", "",
+                    "impact", "neutral"
+            ));
+        }
         return ResponseEntity.ok(news);
     }
 
-    @GetMapping("/anomalies")
-    public ResponseEntity<List<Map<String, Object>>> getAnomalies(@RequestParam String subject) {
-        // Заглушка
-        List<Map<String, Object>> anomalies = List.of(
-                Map.of(
-                        "id", "an-1",
-                        "indicator", "Доход банка",
-                        "period", "2025-07",
-                        "subject", subject,
-                        "deviationPct", -22.4,
-                        "direction", "down",
-                        "text", "Июль 2025: «Доход банка» в регионе " + subject + " снизился на -22.4%."
-                )
-        );
-        return ResponseEntity.ok(anomalies);
-    }
+    @PostMapping("/ai/summary")
+    public ResponseEntity<Map<String, String>> getAiSummary(@RequestBody Map<String, String> request) {
+        String subject = request.get("subject");
+        if (subject == null || subject.isEmpty()) {
+            Map<String, String> error = new HashMap<>();
+            error.put("summary", "Ошибка: не указан регион");
+            return ResponseEntity.badRequest().body(error);
+        }
 
-    @GetMapping("/ai/summary")
-    public ResponseEntity<Map<String, String>> getAiSummary(@RequestParam String subject) {
-        // Заглушка — можно заменить на реальный вызов PythonClientService
-        Map<String, String> summary = new HashMap<>();
-        summary.put("marketNews", "В Северо-Западном ФО зафиксирован рост цен на продукты на 4.2%.");
-        summary.put("aiPlanSummary", "Базовый сценарий показывает рост дохода банка YoY на 5.3%.");
-        return ResponseEntity.ok(summary);
+        // ✅ Тоже передаём показатели для контекста
+        List<String> indicators = factRepository.findDistinctIndicators();
+
+        List<FactEntity> facts = factRepository.findBySubject(subject);
+        Map<String, Object> data = new HashMap<>();
+        data.put("subject", subject);
+        data.put("records", facts.size());
+        data.put("indicators", indicators);
+
+        JsonNode result = pythonClientService.callGenerateText(data);
+        Map<String, String> response = new HashMap<>();
+        if (result != null && result.has("summary")) {
+            response.put("summary", result.path("summary").asText());
+        } else {
+            response.put("summary", "Аналитика временно недоступна.");
+        }
+        return ResponseEntity.ok(response);
     }
 
     // ============================================================
-    // 7. Экспорт в CSV (с BOM для русских букв)
+    // 9. АНОМАЛИИ
+    // ============================================================
+    @GetMapping("/anomalies")
+    public ResponseEntity<List<Map<String, Object>>> getAnomalies(
+            @RequestParam String subject,
+            @RequestParam String indicator) {  // ← теперь indicator обязательный!
+
+        List<FactEntity> facts = factRepository.findBySubject(subject);
+        if (facts.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+
+        Map<Integer, Map<Integer, Double>> history = buildHistory(facts, indicator);
+        List<Map<String, Object>> anomalies = new ArrayList<>();
+
+        List<Double> allValues = new ArrayList<>();
+        for (Map<Integer, Double> months : history.values()) {
+            allValues.addAll(months.values());
+        }
+
+        if (allValues.size() > 5) {
+            double mean = allValues.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+            double std = Math.sqrt(allValues.stream().mapToDouble(v -> Math.pow(v - mean, 2)).average().orElse(0));
+
+            for (Map.Entry<Integer, Map<Integer, Double>> yearEntry : history.entrySet()) {
+                int year = yearEntry.getKey();
+                for (Map.Entry<Integer, Double> monthEntry : yearEntry.getValue().entrySet()) {
+                    int month = monthEntry.getKey();
+                    double value = monthEntry.getValue();
+                    if (Math.abs(value - mean) > 2 * std) {
+                        Map<String, Object> anomaly = new LinkedHashMap<>();
+                        anomaly.put("period", year + "-" + String.format("%02d", month));
+                        anomaly.put("indicator", indicator);
+                        anomaly.put("subject", subject);
+                        anomaly.put("deviationPct", Math.round((value - mean) / mean * 100));
+                        anomaly.put("direction", value > mean ? "up" : "down");
+                        anomaly.put("text", String.format("%d-%02d: %s в %s %s на %.1f%% от среднего",
+                                year, month, indicator, subject, value > mean ? "вырос" : "снизился",
+                                Math.abs((value - mean) / mean * 100)));
+                        anomalies.add(anomaly);
+                    }
+                }
+            }
+        }
+        return ResponseEntity.ok(anomalies);
+    }
+
+    // ============================================================
+    // 10. ЭКСПОРТ В CSV
     // ============================================================
     @GetMapping("/export/csv")
     public ResponseEntity<byte[]> exportToCsv(@RequestParam(required = false) String subject) throws IOException {
@@ -187,16 +314,16 @@ public class AnalyticsController {
         }
 
         StringBuilder csv = new StringBuilder();
-        csv.append("\uFEFF"); // BOM
+        csv.append("\uFEFF");
         csv.append("Период;Округ;Субъект;Показатель;Ед.изм.;Значение\n");
 
         for (FactEntity e : data) {
             csv.append(String.format("%s;%s;%s;%s;%s;%.2f\n",
                     e.getPeriod(),
-                    e.getDistrict(),
+                    e.getDistrict() != null ? e.getDistrict() : "",
                     e.getSubject(),
                     e.getIndicator(),
-                    e.getUnit(),
+                    e.getUnit() != null ? e.getUnit() : "",
                     e.getValue()
             ));
         }
@@ -208,5 +335,20 @@ public class AnalyticsController {
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(content);
+    }
+
+    // ============================================================
+    // ВСПОМОГАТЕЛЬНЫЙ МЕТОД
+    // ============================================================
+    private Map<Integer, Map<Integer, Double>> buildHistory(List<FactEntity> facts, String indicator) {
+        Map<Integer, Map<Integer, Double>> history = new LinkedHashMap<>();
+        for (FactEntity f : facts) {
+            if (!f.getIndicator().equals(indicator)) continue;
+            String[] parts = f.getPeriod().split("-");
+            int year = Integer.parseInt(parts[0]);
+            int month = Integer.parseInt(parts[1]);
+            history.computeIfAbsent(year, k -> new LinkedHashMap<>()).put(month, f.getValue());
+        }
+        return history;
     }
 }

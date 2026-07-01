@@ -33,4 +33,9 @@ public interface FactRepository extends JpaRepository<FactEntity, Long> {
 
     @Query("SELECT DISTINCT f.subject FROM FactEntity f")
     List<String> findAllSubjects();
+
+    @Query("SELECT COUNT(f) > 0 FROM FactEntity f WHERE f.period = :period AND f.subject = :subject AND f.indicator = :indicator")
+    boolean existsByPeriodAndSubjectAndIndicator(@Param("period") String period,
+                                                 @Param("subject") String subject,
+                                                 @Param("indicator") String indicator);
 }

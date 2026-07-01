@@ -18,8 +18,6 @@ public class ExcelParserService {
 
     public List<FactEntity> parseExcel(MultipartFile file) throws Exception {
         List<FactEntity> facts = new ArrayList<>();
-        Map<Integer, String> indicatorMap = new LinkedHashMap<>();
-        int periodIdx = -1, districtIdx = -1, subjectIdx = -1;
 
         try (InputStream is = file.getInputStream();
              Workbook workbook = new XSSFWorkbook(is)) {
@@ -28,10 +26,12 @@ public class ExcelParserService {
             Row headerRow = sheet.getRow(0);
             if (headerRow == null) throw new IllegalArgumentException("Файл пуст или нет заголовков");
 
-            // Определяем колонки
+            int periodIdx = -1, districtIdx = -1, subjectIdx = -1;
+            int indicatorIdx = -1, unitIdx = -1, valueIdx = -1;
+
             for (Cell cell : headerRow) {
-                String header = cell.getStringCellValue().trim();
-                switch (header.toLowerCase()) {
+                String header = cell.getStringCellValue().trim().toLowerCase();
+                switch (header) {
                     case "отчетный период":
                     case "период":
                         periodIdx = cell.getColumnIndex();
@@ -44,53 +44,105 @@ public class ExcelParserService {
                     case "регион":
                         subjectIdx = cell.getColumnIndex();
                         break;
-                    default:
-                        if (!header.isEmpty()) {
-                            indicatorMap.put(cell.getColumnIndex(), header);
-                        }
+                    case "показатель":
+                        indicatorIdx = cell.getColumnIndex();
+                        break;
+                    case "мера измерения":
+                    case "ед.изм.":
+                        unitIdx = cell.getColumnIndex();
+                        break;
+                    case "значение":
+                        valueIdx = cell.getColumnIndex();
+                        break;
                 }
             }
 
-            if (periodIdx == -1 || subjectIdx == -1) {
-                throw new IllegalArgumentException("Не найдены обязательные колонки: 'Период' и 'Субъект РФ'");
+            if (periodIdx == -1 || subjectIdx == -1 || indicatorIdx == -1 || valueIdx == -1) {
+                throw new IllegalArgumentException("Не найдены обязательные колонки");
             }
 
-            // Проход по строкам данных
             for (Row row : sheet) {
                 if (row.getRowNum() == 0) continue;
 
-                String period = getCellString(row, periodIdx);
+                String rawPeriod = getCellString(row, periodIdx);
+                String period = normalizePeriod(rawPeriod); // <-- ГЛАВНОЕ ИСПРАВЛЕНИЕ!
+
                 String district = districtIdx != -1 ? getCellString(row, districtIdx) : "";
                 String subject = getCellString(row, subjectIdx);
+                String indicator = getCellString(row, indicatorIdx);
+                String unit = unitIdx != -1 ? getCellString(row, unitIdx) : detectUnit(indicator);
+                Double value = getCellNumeric(row, valueIdx);
 
-                if (period.isEmpty() || subject.isEmpty()) {
-                    log.warn("Пропущена строка {}: пустой период или субъект", row.getRowNum());
+                if (period.isEmpty() || subject.isEmpty() || indicator.isEmpty() || value == null) {
+                    log.warn("Пропущена строка {}", row.getRowNum());
                     continue;
                 }
 
-                for (Map.Entry<Integer, String> entry : indicatorMap.entrySet()) {
-                    int colIdx = entry.getKey();
-                    String indicator = entry.getValue();
-                    Double value = getCellNumeric(row, colIdx);
-                    if (value == null) {
-                        log.warn("Значение для {} в строке {} не число, пропускаем", indicator, row.getRowNum());
-                        continue;
-                    }
-                    FactEntity fact = new FactEntity();
-                    fact.setPeriod(period);
-                    fact.setDistrict(district);
-                    fact.setSubject(subject);
-                    fact.setIndicator(indicator);
-                    fact.setUnit(detectUnit(indicator));
-                    fact.setValue(value);
-                    facts.add(fact);
-                }
+                FactEntity fact = new FactEntity();
+                fact.setPeriod(period);
+                fact.setDistrict(district);
+                fact.setSubject(subject);
+                fact.setIndicator(indicator);
+                fact.setUnit(unit);
+                fact.setValue(value);
+                facts.add(fact);
             }
-        } catch (Exception e) {
-            log.error("Ошибка парсинга Excel", e);
-            throw new Exception("Не удалось распарсить файл: " + e.getMessage(), e);
         }
         return facts;
+    }
+
+    // ============================================================
+    // НОВЫЙ МЕТОД: Приводит "Май 20" к "2020-05"
+    // ============================================================
+    private String normalizePeriod(String raw) {
+        if (raw == null || raw.isEmpty()) return raw;
+
+        // Убираем лишние пробелы
+        raw = raw.trim();
+
+        // Если уже в формате YYYY-MM — возвращаем как есть
+        if (raw.matches("\\d{4}-\\d{2}")) {
+            return raw;
+        }
+
+        // Парсим "Май 20" → месяц и год
+        String[] parts = raw.split(" ");
+        if (parts.length != 2) {
+            log.warn("Не удалось распарсить период: {}", raw);
+            return raw;
+        }
+
+        String monthName = parts[0];
+        String yearStr = parts[1];
+
+        // Сопоставляем русские названия месяцев с номерами
+        Map<String, Integer> monthMap = new HashMap<>();
+        monthMap.put("Январь", 1);
+        monthMap.put("Февраль", 2);
+        monthMap.put("Март", 3);
+        monthMap.put("Апрель", 4);
+        monthMap.put("Май", 5);
+        monthMap.put("Июнь", 6);
+        monthMap.put("Июль", 7);
+        monthMap.put("Август", 8);
+        monthMap.put("Сентябрь", 9);
+        monthMap.put("Октябрь", 10);
+        monthMap.put("Ноябрь", 11);
+        monthMap.put("Декабрь", 12);
+
+        Integer month = monthMap.get(monthName);
+        if (month == null) {
+            log.warn("Неизвестный месяц: {}", monthName);
+            return raw;
+        }
+
+        // Определяем полный год (если "20" → "2020", если "15" → "2015")
+        int year = Integer.parseInt(yearStr);
+        if (year < 100) {
+            year = 2000 + year;
+        }
+
+        return String.format("%d-%02d", year, month);
     }
 
     private String getCellString(Row row, int index) {
