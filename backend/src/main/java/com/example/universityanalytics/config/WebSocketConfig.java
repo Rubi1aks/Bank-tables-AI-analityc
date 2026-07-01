@@ -15,11 +15,22 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws")
                 .setAllowedOrigins("*")
                 .withSockJS();
+
+        // WebSocket для новостей
+        registry.addEndpoint("/ws/news")
+                .setAllowedOrigins("*")
+                .withSockJS();
+
+        // WebSocket для прогресса загрузки
+        registry.addEndpoint("/ws/upload")
+                .setAllowedOrigins("*")
+                .withSockJS();
     }
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic");
+        registry.enableSimpleBroker("/topic", "/queue");
         registry.setApplicationDestinationPrefixes("/app");
+        registry.setUserDestinationPrefix("/user");
     }
 }

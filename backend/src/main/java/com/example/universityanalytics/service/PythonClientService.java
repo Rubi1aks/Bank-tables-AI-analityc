@@ -20,31 +20,70 @@ public class PythonClientService {
     @Value("${python.service.url:http://localhost:5000}")
     private String pythonUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Внедряем RestTemplate через конструктор
+    public PythonClientService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     public JsonNode callPredict(String subject, String indicator, int horizon, String method,
                                 Map<Integer, Map<Integer, Double>> history) {
         String url = pythonUrl + "/predict";
 
-        ObjectNode request = objectMapper.createObjectNode();
-        request.put("subject", subject);
-        request.put("indicator", indicator);
-        request.put("horizon", horizon);
-        request.put("method", method);
-        request.set("history", objectMapper.valueToTree(history));
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> entity = new HttpEntity<>(request.toString(), headers);
-
         try {
+            // Правильный формат для Python
+            ObjectNode request = objectMapper.createObjectNode();
+            ObjectNode dataNode = objectMapper.createObjectNode();
+            ObjectNode indicatorNode = objectMapper.createObjectNode();
+
+            for (Map.Entry<Integer, Map<Integer, Double>> yearEntry : history.entrySet()) {
+                int year = yearEntry.getKey();
+                ObjectNode monthNode = objectMapper.createObjectNode();
+                for (Map.Entry<Integer, Double> monthEntry : yearEntry.getValue().entrySet()) {
+                    monthNode.put(String.valueOf(monthEntry.getKey()), monthEntry.getValue());
+                }
+                indicatorNode.set(String.valueOf(year), monthNode);
+            }
+
+            dataNode.set(indicator, indicatorNode);
+            request.set("data", dataNode);
+            request.put("n_periods", horizon);
+
+            log.info("📤 Отправка запроса в Python: {}", request.toString());
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<String> entity = new HttpEntity<>(request.toString(), headers);
+
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+
+            log.info("📥 Ответ от Python: статус {}", response.getStatusCode());
+
             if (response.getStatusCode() == HttpStatus.OK) {
-                return objectMapper.readTree(response.getBody());
+                JsonNode result = objectMapper.readTree(response.getBody());
+                log.info("✅ Python ответ получен");
+
+                JsonNode metricResult = result.path(indicator);
+                if (metricResult.has("models")) {
+                    JsonNode models = metricResult.path("models");
+                    for (JsonNode model : models) {
+                        if (model.path("best").asBoolean(false)) {
+                            return model;
+                        }
+                    }
+                    if (models.size() > 0) {
+                        return models.get(0);
+                    }
+                }
+                return result;
+            } else {
+                log.error("❌ Python вернул ошибку: {}", response.getStatusCode());
+                log.error("Тело ответа: {}", response.getBody());
             }
         } catch (Exception e) {
-            log.error("Python service error: {}", e.getMessage());
+            log.error("❌ Ошибка при вызове Python: {}", e.getMessage(), e);
         }
         return null;
     }

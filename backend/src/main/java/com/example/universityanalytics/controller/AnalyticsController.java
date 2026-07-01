@@ -113,8 +113,8 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 6. ПРОГНОЗ (любой показатель!)
-    // ============================================================
+// 6. ПРОГНОЗ (любой показатель!)
+// ============================================================
     @GetMapping("/forecast")
     public ResponseEntity<Map<String, Object>> getForecast(
             @RequestParam String subject,
@@ -122,23 +122,54 @@ public class AnalyticsController {
             @RequestParam(defaultValue = "6") int horizon,
             @RequestParam(defaultValue = "sarimax") String method) {
 
+        log.info("📊 Прогноз: subject={}, indicator={}, horizon={}, method={}", subject, indicator, horizon, method);
+
         List<FactEntity> facts = factRepository.findBySubject(subject);
         Map<Integer, Map<Integer, Double>> history = buildHistory(facts, indicator);
 
         if (history.isEmpty()) {
-            return ResponseEntity.noContent().build();
+            log.warn("⚠️ Нет данных для прогноза по {} в {}", indicator, subject);
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("error", "Нет данных для прогноза");
+            response.put("indicator", indicator);
+            response.put("subject", subject);
+            return ResponseEntity.ok(response);
+        }
+
+        log.info("📊 История: {} лет", history.size());
+        for (Map.Entry<Integer, Map<Integer, Double>> entry : history.entrySet()) {
+            log.info("  {}: {} месяцев", entry.getKey(), entry.getValue().size());
         }
 
         JsonNode pythonResult = pythonClientService.callPredict(subject, indicator, horizon, method, history);
 
         Map<String, Object> response = new LinkedHashMap<>();
         if (pythonResult != null) {
+            log.info("✅ Python вернул результат");
+
             response.put("method", method);
             response.put("indicator", indicator);
             response.put("subject", subject);
-            response.put("points", pythonResult.path("points"));
-            response.put("qualityScore", pythonResult.path("qualityScore").asDouble(0.12));
+
+            // Извлекаем прогноз
+            if (pythonResult.has("forecast")) {
+                response.put("points", pythonResult.path("forecast"));
+            } else if (pythonResult.has("metrics")) {
+                response.put("metrics", pythonResult.path("metrics"));
+                response.put("points", pythonResult.path("forecast"));
+            } else {
+                response.put("raw", pythonResult);
+            }
+
+            if (pythonResult.has("metrics") && pythonResult.path("metrics").has("RMSE")) {
+                response.put("qualityScore", pythonResult.path("metrics").path("RMSE").asDouble(0.12));
+            } else {
+                response.put("qualityScore", 0.12);
+            }
+
+            log.info("📤 Ответ: {}", response);
         } else {
+            log.error("❌ Python-сервис недоступен");
             response.put("error", "Python-сервис недоступен");
             response.put("method", method);
             response.put("indicator", indicator);
@@ -148,13 +179,15 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 7. СЦЕНАРИИ (любой показатель!)
-    // ============================================================
+// 7. СЦЕНАРИИ (любой показатель!)
+// ============================================================
     @GetMapping("/scenarios")
     public ResponseEntity<List<ScenarioResponse>> getScenarios(
             @RequestParam String subject,
             @RequestParam String indicator,
             @RequestParam(defaultValue = "6") int horizon) {
+
+        log.info("📊 Сценарии: subject={}, indicator={}, horizon={}", subject, indicator, horizon);
         return ResponseEntity.ok(scenarioService.getDefaultScenarios(subject, indicator, horizon));
     }
 
@@ -181,19 +214,18 @@ public class AnalyticsController {
 // 8. AI-АНАЛИТИКА (динамические показатели!)
 // ============================================================
 
+    // AnalyticsController.java — исправленный /news
     @PostMapping("/news")
     public ResponseEntity<List<Map<String, Object>>> getNews(@RequestBody Map<String, Object> request) {
         String subject = (String) request.getOrDefault("subject", "");
         int period = request.containsKey("period") ? (int) request.get("period") : 90;
 
-        // ✅ Получаем список ВСЕХ показателей из БД (динамически!)
         List<String> indicators = factRepository.findDistinctIndicators();
-        log.info("Запрос новостей для региона: {}, период: {} дней, показателей: {}", subject, period, indicators.size());
 
         Map<String, Object> data = new HashMap<>();
         data.put("subject", subject);
         data.put("period", period);
-        data.put("indicators", indicators);  // ← передаём в Python
+        data.put("indicators", indicators);
 
         JsonNode result = pythonClientService.callGenerateNews(data);
         List<Map<String, Object>> news = new ArrayList<>();
@@ -207,6 +239,7 @@ public class AnalyticsController {
                 newsItem.put("source", item.path("source").asText("Источник"));
                 newsItem.put("date", item.path("date").asText(""));
                 newsItem.put("url", item.path("url").asText(""));
+                // ✅ Если impact нет — ставим "neutral" по умолчанию
                 newsItem.put("impact", item.path("impact").asText("neutral"));
                 news.add(newsItem);
             }
