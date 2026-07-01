@@ -56,4 +56,6 @@ public class ScenarioResponse {
         public Double getUpperBound() { return upperBound; }
         public void setUpperBound(Double upperBound) { this.upperBound = upperBound; }
     }
+
+
 }

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 
 public interface FactRepository extends JpaRepository<FactEntity, Long> {
@@ -26,4 +27,10 @@ public interface FactRepository extends JpaRepository<FactEntity, Long> {
 
     @Query("SELECT DISTINCT f.subject FROM FactEntity f")
     List<String> findDistinctSubjects();
+
+    @Query("SELECT DISTINCT f.period FROM FactEntity f ORDER BY f.period")
+    List<String> findAllPeriods();
+
+    @Query("SELECT DISTINCT f.subject FROM FactEntity f")
+    List<String> findAllSubjects();
 }
