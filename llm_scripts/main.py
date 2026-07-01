@@ -3,14 +3,14 @@ from pydantic import BaseModel
 import pandas as pd
 import uvicorn
 
-from ai_prediction import exponential_smoothing, sarimax_prediction, prophet_prediction
+from ai_prediction import compare_models
 from text_generation import gigachat_anomalies, gigachat_text
 
 app = FastAPI(title="FinTech Analytics AI Service")
 
 
-class PredictionRequest(BaseModel):
-    data: dict[int, dict[int, float]] # { "2024": { "1": 123.4, "2": 567.8 }, ... }
+class MultiPredictionRequest(BaseModel):
+    data: dict[str, dict[str, dict[str, float]]]
     n_periods: int = 12
 
 
@@ -31,33 +31,49 @@ class RegionAnalysisRequest(BaseModel):
     data: dict
 
 
-@app.post("/api/predict/exponential")
-def predict_exponential(payload: PredictionRequest):
+@app.post("/api/predict/all_models")
+def predict_all_models(payload: MultiPredictionRequest):
+
     try:
-        prediction = exponential_smoothing(payload.data, payload.n_periods)
-        # Конвертируем pandas.Series/DataFrame в JSON-совместимый словарь (timestamp -> value)
-        return {"prediction": {str(k.date()): v for k, v in prediction.items()}}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        result = {}
 
+        for metric_name, metric_data in payload.data.items():
 
-@app.post("/api/predict/sarimax")
-def predict_sarimax(payload: PredictionRequest):
-    try:
-        prediction = sarimax_prediction(payload.data, payload.n_periods)
-        return {"prediction": {str(k.date()): v for k, v in prediction.items()}}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            df = compare_models(metric_data, payload.n_periods)
 
+            best_model = df.iloc[0]["model"]
 
-@app.post("/api/predict/prophet")
-def predict_prophet(payload: PredictionRequest):
-    try:
-        prediction = prophet_prediction(payload.data, payload.n_periods)
-        # Prophet возвращает DataFrame, забираем только прогнозные строки 'ds' и 'yhat'
-        forecast_df = prediction[['ds', 'yhat']].tail(payload.n_periods)
-        result = {str(row['ds'].date()): row['yhat'] for _, row in forecast_df.iterrows()}
-        return {"prediction": result}
+            models_output = []
+
+            for _, row in df.iterrows():
+
+                forecast = row["forecast"]
+
+                # Series -> JSON
+                forecast_json = {
+                    str(k.date()): float(v)
+                    for k, v in forecast.items()
+                }
+
+                models_output.append({
+                    "name": row["model"],
+                    "metrics": {
+                        "MAE": float(row["MAE"]) if row["MAE"] == row["MAE"] else None,
+                        "RMSE": float(row["RMSE"]) if row["RMSE"] == row["RMSE"] else None,
+                        "MAPE": float(row["MAPE"]) if row["MAPE"] == row["MAPE"] else None,
+                        "time_sec": float(row["time_sec"])
+                    },
+                    "forecast": forecast_json,
+                    "best": row["model"] == best_model
+                })
+
+            result[metric_name] = {
+                "models": models_output,
+                "best_model": best_model
+            }
+
+        return result
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
