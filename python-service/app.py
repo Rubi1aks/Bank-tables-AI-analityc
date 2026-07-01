@@ -1,63 +1,51 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
-import pandas as pd
-from ai_prediction import exponential_smoothing, sarimax_prediction, prophet_prediction
+from typing import Dict, Any
+from ai_prediction import compare_models
 from text_generation import gigachat_text, gigachat_analyze_news
 from news_parser import get_news_summary_raw
-import numpy as np
 import json
-import asyncio
 import requests
 
 app = FastAPI(title="University Analytics AI Service")
 
 
-class PredictRequest(BaseModel):
-    subject: str
-    indicator: str
-    horizon: int = 6
-    method: str = "sarimax"
-    history: Dict[int, Dict[int, float]]
+class MultiPredictionRequest(BaseModel):
+    data: dict[str, dict[str, dict[str, float]]]
+    n_periods: int = 12
 
 
-class PredictResponse(BaseModel):
-    scenarioType: str
-    description: str
-    points: List[Dict[str, Any]]
-    qualityScore: float
-
-
-@app.post("/predict", response_model=PredictResponse)
-def predict(data: PredictRequest):
+@app.post("/predict")
+def predict(payload: MultiPredictionRequest):
     try:
-        history = data.history
-        method = data.method.lower()
-        n = data.horizon
-
-        if method == "exponential":
-            prediction = exponential_smoothing(history, n)
-        elif method == "prophet":
-            prediction = prophet_prediction(history, n)
-        else:
-            prediction = sarimax_prediction(history, n)
-
-        points = []
-        for period, value in prediction.items():
-            period_str = period.strftime("%Y-%m") if hasattr(period, "strftime") else str(period)
-            points.append({
-                "period": period_str,
-                "value": float(value),
-                "lowerBound": float(value * 0.85),
-                "upperBound": float(value * 1.15)
-            })
-
-        return PredictResponse(
-            scenarioType="BASELINE",
-            description=f"Прогноз по методу {method} для {data.indicator} в {data.subject}",
-            points=points,
-            qualityScore=0.12
-        )
+        result = {}
+        for metric_name, metric_data in payload.data.items():
+            df = compare_models(metric_data, payload.n_periods)
+            best_model = df.iloc[0]["model"]
+            models_output = []
+            for _, row in df.iterrows():
+                forecast = row["forecast"]
+                # Series -> JSON
+                forecast_json = {
+                    str(k.date()): float(v)
+                    for k, v in forecast.items()
+                }
+                models_output.append({
+                    "name": row["model"],
+                    "metrics": {
+                        "MAE": float(row["MAE"]) if row["MAE"] == row["MAE"] else None,
+                        "RMSE": float(row["RMSE"]) if row["RMSE"] == row["RMSE"] else None,
+                        "MAPE": float(row["MAPE"]) if row["MAPE"] == row["MAPE"] else None,
+                        "time_sec": float(row["time_sec"])
+                    },
+                    "forecast": forecast_json,
+                    "best": row["model"] == best_model
+                })
+            result[metric_name] = {
+                "models": models_output,
+                "best_model": best_model
+            }
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -17,6 +17,7 @@ logging.getLogger("prophet").disabled = True
 
 warnings.filterwarnings("ignore")
 
+
 def data_transformation(data: dict[str, dict[str, float]]) -> pd.Series:
     values = {}
 
