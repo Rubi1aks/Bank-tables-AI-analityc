@@ -50,7 +50,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 1. ФАКТЫ (исторические данные)
+    // 1. исторические данные
     // ============================================================
     @GetMapping("/facts")
     public ResponseEntity<List<FactEntity>> getFacts(@RequestParam(required = false) String subject) {
@@ -93,7 +93,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 4. ДРАЙВЕРЫ (теперь любой показатель!)
+    // 4. ДРАЙВЕРЫ
     // ============================================================
     @GetMapping("/analytics/drivers")
     public ResponseEntity<List<DriversService.DriverRow>> getDrivers(
@@ -103,7 +103,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // 5. СЕЗОННОСТЬ (любой показатель!)
+    // 5. СЕЗОННОСТЬ
     // ============================================================
     @GetMapping("/seasonality")
     public ResponseEntity<Map<Integer, Double>> getSeasonality(
@@ -113,7 +113,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-// 6. ПРОГНОЗ (любой показатель!)
+// 6. ПРОГНОЗ
 // ============================================================
     @GetMapping("/forecast")
     public ResponseEntity<Map<String, Object>> getForecast(
@@ -179,7 +179,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-// 7. СЦЕНАРИИ (любой показатель!)
+// 7. СЦЕНАРИИ
 // ============================================================
     @GetMapping("/scenarios")
     public ResponseEntity<List<ScenarioResponse>> getScenarios(
@@ -206,15 +206,6 @@ public class AnalyticsController {
     // ============================================================
     // 8. AI-АНАЛИТИКА
     // ============================================================
-    // ============================================================
-// 8. AI-АНАЛИТИКА (теперь POST!)
-// ============================================================
-
-    // ============================================================
-// 8. AI-АНАЛИТИКА (динамические показатели!)
-// ============================================================
-
-    // AnalyticsController.java — исправленный /news
     @PostMapping("/news")
     public ResponseEntity<List<Map<String, Object>>> getNews(@RequestBody Map<String, Object> request) {
         String subject = (String) request.getOrDefault("subject", "");
@@ -239,7 +230,6 @@ public class AnalyticsController {
                 newsItem.put("source", item.path("source").asText("Источник"));
                 newsItem.put("date", item.path("date").asText(""));
                 newsItem.put("url", item.path("url").asText(""));
-                // ✅ Если impact нет — ставим "neutral" по умолчанию
                 newsItem.put("impact", item.path("impact").asText("neutral"));
                 news.add(newsItem);
             }
@@ -265,7 +255,6 @@ public class AnalyticsController {
             return ResponseEntity.badRequest().body(error);
         }
 
-        // ✅ Тоже передаём показатели для контекста
         List<String> indicators = factRepository.findDistinctIndicators();
 
         List<FactEntity> facts = factRepository.findBySubject(subject);
@@ -290,7 +279,7 @@ public class AnalyticsController {
     @GetMapping("/anomalies")
     public ResponseEntity<List<Map<String, Object>>> getAnomalies(
             @RequestParam String subject,
-            @RequestParam String indicator) {  // ← теперь indicator обязательный!
+            @RequestParam String indicator) {
 
         List<FactEntity> facts = factRepository.findBySubject(subject);
         if (facts.isEmpty()) {
@@ -371,7 +360,7 @@ public class AnalyticsController {
     }
 
     // ============================================================
-    // ВСПОМОГАТЕЛЬНЫЙ МЕТОД
+    // вспомогательное
     // ============================================================
     private Map<Integer, Map<Integer, Double>> buildHistory(List<FactEntity> facts, String indicator) {
         Map<Integer, Map<Integer, Double>> history = new LinkedHashMap<>();

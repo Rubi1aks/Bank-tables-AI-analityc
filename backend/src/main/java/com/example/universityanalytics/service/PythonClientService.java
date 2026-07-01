@@ -23,7 +23,6 @@ public class PythonClientService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Внедряем RestTemplate через конструктор
     public PythonClientService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
@@ -51,7 +50,7 @@ public class PythonClientService {
             request.set("data", dataNode);
             request.put("n_periods", horizon);
 
-            log.info("📤 Отправка запроса в Python: {}", request.toString());
+            log.info("Отправка запроса в Python: {}", request.toString());
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -59,11 +58,11 @@ public class PythonClientService {
 
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
 
-            log.info("📥 Ответ от Python: статус {}", response.getStatusCode());
+            log.info("Ответ от Python: статус {}", response.getStatusCode());
 
             if (response.getStatusCode() == HttpStatus.OK) {
                 JsonNode result = objectMapper.readTree(response.getBody());
-                log.info("✅ Python ответ получен");
+                log.info("Python ответ получен");
 
                 JsonNode metricResult = result.path(indicator);
                 if (metricResult.has("models")) {
@@ -79,11 +78,11 @@ public class PythonClientService {
                 }
                 return result;
             } else {
-                log.error("❌ Python вернул ошибку: {}", response.getStatusCode());
+                log.error("Python вернул ошибку: {}", response.getStatusCode());
                 log.error("Тело ответа: {}", response.getBody());
             }
         } catch (Exception e) {
-            log.error("❌ Ошибка при вызове Python: {}", e.getMessage(), e);
+            log.error("Ошибка при вызове Python: {}", e.getMessage(), e);
         }
         return null;
     }

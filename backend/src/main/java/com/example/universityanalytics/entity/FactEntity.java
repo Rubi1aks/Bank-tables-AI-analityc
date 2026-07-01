@@ -16,7 +16,7 @@ public class FactEntity {
     private String indicator;
     private String unit;
 
-    @Column(name = "fact_value")  // ← ИЗМЕНИЛ НАЗВАНИЕ!
+    @Column(name = "fact_value")
     private Double value;
 
     public FactEntity() {}
@@ -30,7 +30,6 @@ public class FactEntity {
         this.value = value;
     }
 
-    // ... геттеры и сеттеры (оставляем как были)
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 

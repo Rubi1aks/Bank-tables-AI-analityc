@@ -91,21 +91,15 @@ public class ExcelParserService {
         return facts;
     }
 
-    // ============================================================
-    // НОВЫЙ МЕТОД: Приводит "Май 20" к "2020-05"
-    // ============================================================
     private String normalizePeriod(String raw) {
         if (raw == null || raw.isEmpty()) return raw;
 
-        // Убираем лишние пробелы
         raw = raw.trim();
 
-        // Если уже в формате YYYY-MM — возвращаем как есть
         if (raw.matches("\\d{4}-\\d{2}")) {
             return raw;
         }
 
-        // Парсим "Май 20" → месяц и год
         String[] parts = raw.split(" ");
         if (parts.length != 2) {
             log.warn("Не удалось распарсить период: {}", raw);
@@ -115,7 +109,6 @@ public class ExcelParserService {
         String monthName = parts[0];
         String yearStr = parts[1];
 
-        // Сопоставляем русские названия месяцев с номерами
         Map<String, Integer> monthMap = new HashMap<>();
         monthMap.put("Январь", 1);
         monthMap.put("Февраль", 2);
@@ -136,7 +129,6 @@ public class ExcelParserService {
             return raw;
         }
 
-        // Определяем полный год (если "20" → "2020", если "15" → "2015")
         int year = Integer.parseInt(yearStr);
         if (year < 100) {
             year = 2000 + year;

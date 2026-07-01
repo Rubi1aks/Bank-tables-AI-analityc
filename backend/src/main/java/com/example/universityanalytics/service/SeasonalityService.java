@@ -20,7 +20,6 @@ public class SeasonalityService {
             return getDefaultSeasonality();
         }
 
-        // Группируем по году и месяцу для указанного индикатора
         Map<Integer, Map<Integer, Double>> yearlyData = new HashMap<>();
         for (FactEntity fact : facts) {
             if (!fact.getIndicator().equals(indicator)) continue;
@@ -34,7 +33,6 @@ public class SeasonalityService {
             return getDefaultSeasonality();
         }
 
-        // Считаем среднее для каждого месяца
         Map<Integer, Double> monthlyAvg = new HashMap<>();
         Map<Integer, Integer> monthlyCount = new HashMap<>();
         for (Map<Integer, Double> months : yearlyData.values()) {
@@ -50,10 +48,8 @@ public class SeasonalityService {
             monthlyAvg.put(month, monthlyAvg.get(month) / monthlyCount.get(month));
         }
 
-        // Среднегодовое значение
         double totalAvg = monthlyAvg.values().stream().mapToDouble(Double::doubleValue).average().orElse(1.0);
 
-        // Индексы сезонности
         Map<Integer, Double> seasonality = new HashMap<>();
         for (int month = 1; month <= 12; month++) {
             double avg = monthlyAvg.getOrDefault(month, 0.0);

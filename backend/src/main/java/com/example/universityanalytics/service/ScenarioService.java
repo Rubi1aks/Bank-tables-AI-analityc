@@ -54,7 +54,6 @@ public class ScenarioService {
             return convertToScenario("CUSTOM", result);
         }
 
-        // Fallback
         List<ScenarioResponse.ScenarioPoint> points = new ArrayList<>();
         String[] months = getFutureMonths(horizon);
         double base = history.values().stream()

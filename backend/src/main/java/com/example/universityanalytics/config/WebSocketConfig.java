@@ -16,12 +16,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setAllowedOrigins("*")
                 .withSockJS();
 
-        // WebSocket для новостей
         registry.addEndpoint("/ws/news")
                 .setAllowedOrigins("*")
                 .withSockJS();
 
-        // WebSocket для прогресса загрузки
         registry.addEndpoint("/ws/upload")
                 .setAllowedOrigins("*")
                 .withSockJS();

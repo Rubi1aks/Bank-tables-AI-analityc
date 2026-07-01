@@ -20,7 +20,6 @@ public class DriversService {
         List<FactEntity> facts = factRepository.findBySubject(subject);
         if (facts.isEmpty()) return Collections.emptyList();
 
-        // Фильтруем только нужный показатель
         List<FactEntity> filtered = facts.stream()
                 .filter(f -> f.getIndicator().equals(indicator))
                 .sorted(Comparator.comparing(FactEntity::getPeriod))
@@ -39,7 +38,6 @@ public class DriversService {
             row.setValue(f.getValue());
             row.setLag1(previousValue);
 
-            // Считаем процентное изменение
             if (previousValue != null && previousValue != 0) {
                 double change = ((f.getValue() - previousValue) / previousValue) * 100;
                 row.setChangePct(Math.round(change * 100.0) / 100.0);
