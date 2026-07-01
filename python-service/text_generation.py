@@ -38,12 +38,6 @@ def gigachat_text(data: str) -> str:
 
 
 def gigachat_analyze_news(news_text: str, subject: str, indicators: List[str] = None) -> list:
-    """
-    Анализирует новости и возвращает 3-5 самых важных
-    :param news_text: текст новостей
-    :param subject: регион
-    :param indicators: список показателей из БД для контекста
-    """
     if not AUTH_TOKEN:
         return [{
             "title": "Нет токена GigaChat",
@@ -54,7 +48,6 @@ def gigachat_analyze_news(news_text: str, subject: str, indicators: List[str] = 
             "impact": "neutral"
         }]
 
-    # Формируем список ключевых слов для GigaChat
     keywords = ""
     if indicators:
         keywords = f"\n\nКлючевые слова для анализа (показатели из вашей системы): {', '.join(indicators)}"
@@ -114,5 +107,4 @@ def gigachat_analyze_news(news_text: str, subject: str, indicators: List[str] = 
         return None
 
 def gigachat_anomalies(anomalies):
-    """Заглушка для обратной совместимости"""
     return "Аномалии не обнаружены"

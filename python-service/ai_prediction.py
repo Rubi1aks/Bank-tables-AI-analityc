@@ -236,7 +236,6 @@ def compare_models(data: dict[str, dict[str, float]], n: int) -> pd.DataFrame:
                 "forecast": None,
                 "error": str(e)
             })
-
     return (
         pd.DataFrame(results)
         .sort_values("RMSE")
