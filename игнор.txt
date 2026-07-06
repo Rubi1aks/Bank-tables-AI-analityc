@@ -189,7 +189,3 @@ config_local.py
 secrets.py
 credentials.json
 token.json
-frontend/node_modules/
-frontend/dist/
-frontend/.env
-frontend/.env.local
