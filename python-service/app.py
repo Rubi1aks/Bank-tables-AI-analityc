@@ -6,8 +6,17 @@ from text_generation import gigachat_text, gigachat_analyze_news
 from news_parser import get_news_summary_raw
 import json
 import requests
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="University Analytics AI Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class MultiPredictionRequest(BaseModel):
@@ -124,17 +133,17 @@ def generate_text(data: Dict[str, Any]):
 
 
 @app.post("/generate-news")
-def generate_news(data: Dict[str, Any]):
+async def generate_news(data: Dict[str, Any]):
     try:
         subject = data.get('subject', '')
         period = data.get('period', 90)
         indicators = get_indicators_from_java()
-        news = get_news_summary_raw(subject, period, indicators)
+        # 👇 ДОБАВИТЬ await
+        news = await get_news_summary_raw(subject, period, indicators)
         return {"news": news[:5] if news else []}
     except Exception as e:
         return {"news": [
             {"title": "Ошибка", "summary": str(e), "source": "Система", "date": "", "url": "", "impact": "neutral"}]}
-
 
 @app.get("/health")
 def health():
