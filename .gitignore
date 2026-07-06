@@ -53,7 +53,6 @@ develop-eggs/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -190,6 +189,3 @@ secrets.py
 credentials.json
 token.json
 frontend/node_modules/
-frontend/dist/
-frontend/.env
-frontend/.env.local
