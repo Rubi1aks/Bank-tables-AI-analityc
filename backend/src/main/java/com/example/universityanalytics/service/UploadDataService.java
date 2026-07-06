@@ -25,65 +25,71 @@ public class UploadDataService {
 
     @Transactional
     public void uploadAndUpsert(MultipartFile file) throws Exception {
+        // 1. Парсим файл
         List<FactEntity> newFacts = excelParserService.parseExcel(file);
         if (newFacts.isEmpty()) {
             throw new IllegalArgumentException("Файл не содержит данных для загрузки");
         }
 
-        Map<String, List<FactEntity>> newGrouped = newFacts.stream()
-                .collect(Collectors.groupingBy(f -> f.getPeriod() + "|" + f.getSubject()));
+        log.info("Загружено {} записей из файла", newFacts.size());
 
-        for (Map.Entry<String, List<FactEntity>> entry : newGrouped.entrySet()) {
-            String[] parts = entry.getKey().split("\\|");
-            String period = parts[0];
-            String subject = parts[1];
-            List<FactEntity> factsForThisCell = entry.getValue();
+        // 2. Загружаем все существующие данные из БД
+        List<FactEntity> existingFacts = factRepository.findAll();
 
-            factRepository.deleteByPeriodAndSubject(period, subject);
-            factRepository.saveAll(factsForThisCell);
+        // 3. Строим карту существующих записей: ключ = period|subject|indicator
+        Map<String, FactEntity> existingMap = new HashMap<>();
+        for (FactEntity f : existingFacts) {
+            String key = f.getPeriod() + "|" + f.getSubject() + "|" + f.getIndicator();
+            existingMap.put(key, f);
         }
 
-        addMissingIndicators(newFacts);
+        // 4. Строим карту новых записей
+        Map<String, FactEntity> newMap = new HashMap<>();
+        for (FactEntity f : newFacts) {
+            String key = f.getPeriod() + "|" + f.getSubject() + "|" + f.getIndicator();
+            newMap.put(key, f);
+        }
 
-        log.info("Загрузка завершена: Upsert {} записей", newFacts.size());
-    }
+        // 5. Мержим: обновляем существующие, добавляем новые
+        List<FactEntity> toSave = new ArrayList<>();
 
-    private void addMissingIndicators(List<FactEntity> newFacts) {
-        Set<String> existingIndicators = new HashSet<>(factRepository.findDistinctIndicators());
-        Set<String> newIndicators = newFacts.stream()
-                .map(FactEntity::getIndicator)
-                .collect(Collectors.toSet());
+        // 5a. Обновляем существующие записи
+        for (Map.Entry<String, FactEntity> entry : newMap.entrySet()) {
+            String key = entry.getKey();
+            FactEntity newFact = entry.getValue();
+            FactEntity existing = existingMap.get(key);
 
-        Set<String> missing = newIndicators.stream()
-                .filter(i -> !existingIndicators.contains(i))
-                .collect(Collectors.toSet());
-
-        if (missing.isEmpty()) return;
-
-        List<String> allPeriods = factRepository.findAllPeriods();
-        List<String> allSubjects = factRepository.findAllSubjects();
-
-        List<FactEntity> zeroFacts = new ArrayList<>();
-        for (String period : allPeriods) {
-            for (String subject : allSubjects) {
-                for (String indicator : missing) {
-                    boolean exists = factRepository.existsByPeriodAndSubjectAndIndicator(period, subject, indicator);
-                    if (!exists) {
-                        FactEntity zero = new FactEntity();
-                        zero.setPeriod(period);
-                        zero.setSubject(subject);
-                        zero.setIndicator(indicator);
-                        zero.setUnit("чел");
-                        zero.setValue(0.0);
-                        zeroFacts.add(zero);
-                    }
+            if (existing != null) {
+                // Обновляем существующую запись (сохраняем ID)
+                existing.setValue(newFact.getValue());
+                if (newFact.getUnit() != null && !newFact.getUnit().isEmpty()) {
+                    existing.setUnit(newFact.getUnit());
                 }
+                if (newFact.getDistrict() != null && !newFact.getDistrict().isEmpty()) {
+                    existing.setDistrict(newFact.getDistrict());
+                }
+                toSave.add(existing);
+                // Удаляем из existingMap, чтобы потом не добавлять
+                existingMap.remove(key);
+            } else {
+                // Новая запись — добавляем
+                toSave.add(newFact);
             }
         }
 
-        if (!zeroFacts.isEmpty()) {
-            factRepository.saveAll(zeroFacts);
-            log.info("Добавлено {} записей с нулевыми значениями для новых индикаторов", zeroFacts.size());
-        }
+        // 5b. Все записи, которые были только в существующих (не затронуты обновлением)
+        // остаются в БД, мы их не трогаем. Но если в existingMap остались записи,
+        // мы их просто не удаляем — они останутся в БД.
+        // Поэтому ничего не делаем с existingMap.
+
+        log.info("Обновлено/добавлено {} записей, {} существующих записей сохранены без изменений",
+                toSave.size(), existingMap.size());
+
+        // 6. Сохраняем все в БД
+        // Если в toSave есть объекты без ID, они вставятся,
+        // если с ID — обновятся.
+        factRepository.saveAll(toSave);
+
+        log.info("Загрузка завершена. Всего в БД записей: {}", factRepository.count());
     }
 }

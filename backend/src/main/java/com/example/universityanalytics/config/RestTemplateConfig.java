@@ -12,7 +12,7 @@ public class RestTemplateConfig {
     @Value("${python.service.connect-timeout:10000}")
     private int connectTimeout;
 
-    @Value("${python.service.read-timeout:60000}")
+    @Value("${python.service.read-timeout:180000}")
     private int readTimeout;
 
     @Bean
