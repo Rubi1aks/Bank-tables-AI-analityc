@@ -104,41 +104,46 @@ export function AiInsightsPage() {
         checkStatus,
     } = useAnomalyStore()
 
-    const [selectedSubject, setSelectedSubject] = useState<string>('')
+    // ===== ИЗМЕНЕНО: регион ТОЛЬКО для новостей =====
+    const [newsRegion, setNewsRegion] = useState<string>('')
     const [newsCount, setNewsCount] = useState<number>(5)
     const [initialLoaded, setInitialLoaded] = useState(false)
 
     useEffect(() => {
         loadFacts()
         checkStatus()
-        // При первом рендере рассчитываем аномалии с текущим порогом
-        calculate(selectedSubject || undefined)
+        // Аномалии считаем без региона (для всех)
+        calculate(undefined)
     }, [])
 
-    // Загружаем новости только при первом рендере
+    // Загружаем новости только при первом рендере (с выбранным регионом или без)
     useEffect(() => {
         if (!initialLoaded && !loadingNews) {
-            fetchNews(selectedSubject || undefined, newsCount, false)
+            fetchNews(newsRegion || undefined, newsCount, false)
             setInitialLoaded(true)
         }
     }, [initialLoaded, loadingNews])
 
+    // ===== ИЗМЕНЕНО: при смене региона — только новости =====
+    const handleRegionChange = (region: string) => {
+        setNewsRegion(region)
+        fetchNews(region || undefined, newsCount, true)
+    }
+
     const handleCalculateAnomalies = () => {
-        calculate(selectedSubject || undefined)
+        calculate(undefined) // всегда без региона
     }
 
     const handleRefreshNews = () => {
-        fetchNews(selectedSubject || undefined, newsCount, true)
+        fetchNews(newsRegion || undefined, newsCount, true)
     }
 
     const handleReplaceAnomalies = async () => {
-        await replace(selectedSubject || undefined)
-        // После замены аномалии очищены, данные обновлены, ничего дополнительно не делаем
+        await replace(undefined) // всегда без региона
     }
 
     const handleRestoreAnomalies = async () => {
         await restore()
-        // После восстановления данные обновлены, аномалии пересчитаны
     }
 
     const motionProps = (i: number) =>
@@ -161,19 +166,16 @@ export function AiInsightsPage() {
                 subtitle="Актуальные новости по теме ваших данных и автоматически найденные аномалии"
             />
 
+            {/* ===== ИЗМЕНЕНО: регион управляет ТОЛЬКО новостями ===== */}
             <div className="mb-4 flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-text-muted" />
-                    <span className="text-sm text-text-secondary">Регион:</span>
+                    <span className="text-sm text-text-secondary">Регион (новости):</span>
                 </div>
 
                 <Select
-                    value={selectedSubject}
-                    onChange={e => {
-                        setSelectedSubject(e.target.value)
-                        // При смене региона автоматически пересчитываем аномалии
-                        calculate(e.target.value || undefined)
-                    }}
+                    value={newsRegion}
+                    onChange={e => handleRegionChange(e.target.value)}
                     className="w-52"
                 >
                     <option value="">Все субъекты</option>
@@ -181,6 +183,7 @@ export function AiInsightsPage() {
                         <option key={s} value={s}>{s}</option>
                     ))}
                 </Select>
+                <span className="text-xs text-text-muted ml-2">(аномалии считаются для всех регионов)</span>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -251,7 +254,7 @@ export function AiInsightsPage() {
                     ) : null}
                 </div>
 
-                {/* Колонка аномалий */}
+                {/* Колонка аномалий — без привязки к региону */}
                 <div>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <h3 className="flex items-center gap-2 text-sm font-semibold tracking-wide text-text-primary">

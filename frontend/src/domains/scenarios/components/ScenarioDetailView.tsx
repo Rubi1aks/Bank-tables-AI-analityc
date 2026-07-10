@@ -55,6 +55,7 @@ export function ScenarioDetailView({ scenario }: Props) {
     const [selectedStdRegion, setSelectedStdRegion] = useState<string>(regions[0] || '')
     const [selectedStdModel, setSelectedStdModel] = useState<string>('')
     const [stdVisibleYears, setStdVisibleYears] = useState<number>(3)
+    const [confidenceZ, setConfidenceZ] = useState<number>(1.96)
 
     const [selectedDriversRegion, setSelectedDriversRegion] = useState<string>(regions[0] || '')
 
@@ -282,7 +283,7 @@ export function ScenarioDetailView({ scenario }: Props) {
 
         const sortedPeriods = Array.from(allPeriods).sort()
         const stdDev = scenario.stdDevByRegion?.[selectedStdRegion] || 0
-        const z = 1.96
+        const z = confidenceZ
 
         return sortedPeriods.map(period => {
             const hist = filteredHistory.find(p => p.period === period)
@@ -299,7 +300,7 @@ export function ScenarioDetailView({ scenario }: Props) {
                 isForecast: forecastVal !== undefined,
             }
         })
-    }, [scenario, selectedStdRegion, selectedStdModel, stdVisibleYears])
+    }, [scenario, selectedStdRegion, selectedStdModel, stdVisibleYears, confidenceZ])
 
     // ===== КАРТА =====
     const mapData = useMemo(() => {
@@ -572,6 +573,20 @@ export function ScenarioDetailView({ scenario }: Props) {
                                 className="w-16"
                             />
                         </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-text-secondary">Доверительный интервал:</span>
+                            <Select
+                                value={confidenceZ}
+                                onChange={e => setConfidenceZ(Number(e.target.value))}
+                                className="w-44"
+                            >
+                                <option value={1.0}>z = 1.0 (68%)</option>
+                                <option value={1.645}>z = 1.645 (90%)</option>
+                                <option value={1.96}>z = 1.96 (95%)</option>
+                                <option value={2.576}>z = 2.576 (99%)</option>
+                                <option value={3.0}>z = 3.0 (99.7%)</option>
+                            </Select>
+                        </div>
                         <Select
                             value={selectedStdRegion}
                             onChange={e => setSelectedStdRegion(e.target.value)}
@@ -631,7 +646,7 @@ export function ScenarioDetailView({ scenario }: Props) {
                                                     <>
                                                         <div className="w-full h-px bg-border my-1.5" />
                                                         <p className="text-xs text-text-secondary">
-                                                            95% ДИ:
+                                                            ДИ (z={confidenceZ}):
                                                             <span className="text-text-primary ml-1">
                                                                 {formatNumber(data.lower, 0)} – {formatNumber(data.upper, 0)}
                                                             </span>
@@ -709,13 +724,13 @@ export function ScenarioDetailView({ scenario }: Props) {
                     </div>
                     <p className="mt-2 text-xs text-text-muted">
                         Модель: {selectedStdModel}. Регион: {selectedStdRegion}.
-                        Белые пунктирные линии с чёрточками — 95% доверительный интервал (z = 1.96).
+                        Белые пунктирные линии с чёрточками — доверительный интервал (z = {confidenceZ}).
                         СКО: {scenario.stdDevByRegion?.[selectedStdRegion] !== undefined ? formatNumber(scenario.stdDevByRegion[selectedStdRegion], 2) : '—'}
                     </p>
                 </CardBody>
             </Card>
 
-            {/* Драйверы — с отдельным выбором региона */}
+            {/* Драйверы */}
             <Card>
                 <CardHeader className="flex flex-wrap items-center justify-between gap-2">
                     <CardTitle>Драйверы изменения показателя</CardTitle>
