@@ -4,7 +4,73 @@ import type {
     FactRow,
     GraphNodeModel,
     GraphOperator,
+    Scenario,
 } from '@/shared/lib/api-types'
+
+/** Заголовки таблицы данных/прогнозов. */
+const DATA_HEADERS = [
+    'Отчётный период',
+    'Федеральный округ РФ',
+    'Субъект РФ',
+    'Показатель',
+    'Мера измерения',
+    'Значение',
+] as const
+
+/** Ширины колонок для листов «Данные» и «Прогнозы». */
+const DATA_COLS = [{ wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 14 }]
+
+/** Преобразует строку факта/прогноза в объект с колонками-заголовками. */
+function factToRow(f: FactRow) {
+    return {
+        'Отчётный период': f.period,
+        'Федеральный округ РФ': f.district,
+        'Субъект РФ': f.subject,
+        Показатель: f.indicator,
+        'Мера измерения': f.unit,
+        Значение: f.value,
+    }
+}
+
+/**
+ * Разворачивает сценарий-прогноз в плоские строки таблицы.
+ * Приоритет — актуальные данные из `regionForecasts` (лучшая модель на регион),
+ * с фолбэком на legacy-поле `series`.
+ */
+export function scenarioToForecastRows(scenario: Scenario): FactRow[] {
+    const indicator = scenario.params?.targetIndicator || scenario.targetIndicator || ''
+
+    const regions = scenario.regionForecasts ? Object.keys(scenario.regionForecasts) : []
+    if (regions.length > 0) {
+        const rows: FactRow[] = []
+        for (const region of regions) {
+            const models = scenario.regionForecasts[region] || []
+            const model = models[0] // модели отсортированы по rank
+            if (!model || !model.forecast) continue
+            for (const [period, value] of Object.entries(model.forecast)) {
+                rows.push({
+                    period,
+                    district: scenario.title,
+                    subject: region,
+                    indicator,
+                    unit: 'руб',
+                    value,
+                })
+            }
+        }
+        if (rows.length > 0) return rows
+    }
+
+    // Фолбэк на legacy-серию
+    return (scenario.series || []).map((p) => ({
+        period: p.period,
+        district: scenario.title || 'План',
+        subject: 'Прогноз',
+        indicator,
+        unit: 'руб',
+        value: p.value,
+    }))
+}
 
 /** Читаемое представление операторов в формулах. */
 const OPERATOR_LABEL: Record<GraphOperator, string> = {
@@ -24,6 +90,8 @@ export interface ExportOptions {
     graph: BusinessGraph
     indicatorFilter?: string
     includeFormulaSheet: boolean
+    /** Строки карточек-прогнозов для отдельного листа «Прогнозы». */
+    predictionRows?: FactRow[]
 }
 
 export interface ExportSummary {
@@ -64,7 +132,7 @@ function buildFormulaForTarget(
 }
 
 export function exportToExcel(opts: ExportOptions): ExportSummary {
-    const { facts, graph, indicatorFilter, includeFormulaSheet } = opts
+    const { facts, graph, indicatorFilter, includeFormulaSheet, predictionRows } = opts
 
     const wb = XLSX.utils.book_new()
     const sheets: string[] = []
@@ -74,26 +142,10 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
         ? facts.filter((f) => f.indicator === indicatorFilter)
         : facts
 
-    const dataRows = filtered.map((f) => ({
-        'Отчётный период': f.period,
-        'Федеральный округ РФ': f.district,
-        'Субъект РФ': f.subject,
-        Показатель: f.indicator,
-        'Мера измерения': f.unit,
-        Значение: f.value,
-    }))
+    const dataRows = filtered.map(factToRow)
 
-    const dataSheet = XLSX.utils.json_to_sheet(dataRows, {
-        header: [
-            'Отчётный период',
-            'Федеральный округ РФ',
-            'Субъект РФ',
-            'Показатель',
-            'Мера измерения',
-            'Значение',
-        ],
-    })
-    dataSheet['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 28 }, { wch: 16 }, { wch: 14 }]
+    const dataSheet = XLSX.utils.json_to_sheet(dataRows, { header: [...DATA_HEADERS] })
+    dataSheet['!cols'] = DATA_COLS
     XLSX.utils.book_append_sheet(wb, dataSheet, 'Данные')
     sheets.push('Данные')
 
@@ -194,6 +246,16 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
         sheets.push('Формула')
     }
 
+    // ---------- Лист «Прогнозы» ----------
+    if (predictionRows && predictionRows.length > 0) {
+        const predSheet = XLSX.utils.json_to_sheet(predictionRows.map(factToRow), {
+            header: [...DATA_HEADERS],
+        })
+        predSheet['!cols'] = DATA_COLS
+        XLSX.utils.book_append_sheet(wb, predSheet, 'Прогнозы')
+        sheets.push('Прогнозы')
+    }
+
     const suffix = indicatorFilter ? sanitizeName(indicatorFilter) : 'all'
     const wbout = XLSX.write(wb, {
         bookType: 'xlsx',
@@ -206,7 +268,7 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
     })
     downloadBlob(blob, `Планирование_доходов_${suffix}.xlsx`)
 
-    return { rows: dataRows.length, sheets }
+    return { rows: dataRows.length + (predictionRows?.length ?? 0), sheets }
 }
 
 /* ---------- CSV-выгрузка ---------- */
@@ -217,33 +279,25 @@ function csvCell(value: string | number): string {
 }
 
 export function exportToCsv(opts: Omit<ExportOptions, 'includeFormulaSheet' | 'graph'>): ExportSummary {
-    const { facts, indicatorFilter } = opts
+    const { facts, indicatorFilter, predictionRows } = opts
     const filtered = indicatorFilter
         ? facts.filter((f) => f.indicator === indicatorFilter)
         : facts
 
-    const headers = [
-        'Отчётный период',
-        'Федеральный округ РФ',
-        'Субъект РФ',
-        'Показатель',
-        'Мера измерения',
-        'Значение',
-    ]
+    const toLine = (f: FactRow) =>
+        [f.period, f.district, f.subject, f.indicator, f.unit, f.value].map(csvCell).join(';')
 
-    const lines = [headers.join(';')]
-    for (const f of filtered) {
-        lines.push(
-            [f.period, f.district, f.subject, f.indicator, f.unit, f.value].map(csvCell).join(';'),
-        )
-    }
+    const lines = [[...DATA_HEADERS].join(';')]
+    for (const f of filtered) lines.push(toLine(f))
+    // Строки карточек-прогнозов дописываем в конец той же таблицы
+    for (const f of predictionRows ?? []) lines.push(toLine(f))
 
     const csv = '\uFEFF' + lines.join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const suffix = indicatorFilter ? sanitizeName(indicatorFilter) : 'all'
     downloadBlob(blob, `Планирование_доходов_${suffix}.csv`)
 
-    return { rows: filtered.length, sheets: ['Данные'] }
+    return { rows: filtered.length + (predictionRows?.length ?? 0), sheets: ['Данные'] }
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
