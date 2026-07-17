@@ -74,38 +74,21 @@ def predict(payload: MultiPredictionRequest):
 
 
 async def _safe_send(websocket: WebSocket, payload: dict) -> bool:
-    """Отправляет JSON, только если соединение ещё живо.
-
-    Фронтенд переоткрывает WebSocket при каждой смене фильтра (регион/период)
-    и дважды в dev-режиме React StrictMode. Старый сокет при этом закрывается
-    клиентом, а сервер продолжает слать статусы — раньше это давало
-    `RuntimeError: Cannot call "send" once a close message has been sent`
-    и роняло обработчик. Теперь такой send просто тихо пропускается, а вызвавший
-    код по возвращённому False понимает, что клиент ушёл, и прекращает работу."""
     if websocket.application_state != WebSocketState.CONNECTED:
         return False
     try:
         await websocket.send_text(json.dumps(payload))
         return True
-    except Exception as e:  # ConnectionClosedOK / RuntimeError и т.п.
+    except Exception as e:
         logger.info(f"WS send пропущен (клиент отключился): {e}")
         return False
 
 
 def _norm_title(title: str) -> str:
-    """Нормализует заголовок для сопоставления: нижний регистр, «ё»→«е»,
-    только буквы/цифры. Нужно, чтобы найти исходную новость по заголовку,
-    который вернул GigaChat (он может слегка переформатировать текст)."""
     return re.sub(r"[^a-zа-я0-9]+", "", (title or "").lower().replace("ё", "е"))
 
 
 def _restore_source_links(analyzed: list, all_news: list) -> None:
-    """Восстанавливает реальные url/source/date в новостях от GigaChat.
-
-    В GigaChat уходит только текст (заголовок/источник/дата/резюме), без ссылок,
-    поэтому модель возвращает пустые или выдуманные url — и значок «перейти»
-    вёл в никуда (пустой href = текущая страница). Сопоставляем каждую
-    выбранную новость с исходной по заголовку и подставляем настоящую ссылку."""
     by_title = {}
     for n in all_news:
         key = _norm_title(n.get("title", ""))
@@ -116,20 +99,16 @@ def _restore_source_links(analyzed: list, all_news: list) -> None:
         t = _norm_title(item.get("title", ""))
         orig = by_title.get(t)
         if orig is None and t:
-            # Частичное совпадение — GigaChat мог укоротить заголовок.
             for key, n in by_title.items():
                 if t in key or key in t:
                     orig = n
                     break
         if orig:
-            # url у модели ненадёжен — всегда берём реальный из RSS.
             item["url"] = orig.get("url", "")
             item["source"] = orig.get("source", item.get("source", ""))
             if not item.get("date"):
                 item["date"] = orig.get("date", "")
         elif not str(item.get("url", "")).startswith(("http://", "https://")):
-            # Исходник не нашёлся и ссылка не похожа на настоящую — очищаем,
-            # чтобы фронт не рисовал битую ссылку на текущую страницу.
             item["url"] = ""
 
 
@@ -150,8 +129,6 @@ async def websocket_news(websocket: WebSocket):
         if not await _safe_send(websocket, {"phase": "INDICATORS",
                                             "message": f"Получено {len(indicators)} показателей"}):
             return
-
-        # Статусы парсинга шлём тем же безопасным каналом.
         async def status_cb(text: str):
             if websocket.application_state == WebSocketState.CONNECTED:
                 try:
@@ -207,14 +184,10 @@ async def websocket_news(websocket: WebSocket):
 
 
 def get_indicators_from_java() -> List[str]:
-    """Фолбэк: тянет показатели из Java, если фронт/бэкенд не передал их в
-    теле запроса. Основной путь — indicators приходят в запросе (см.
-    NewsService.java), этот вызов нужен лишь для WebSocket-пути и как запас."""
     try:
         response = requests.get("http://localhost:8080/api/indicators", timeout=5)
         if response.status_code == 200:
             return response.json()
-        # Логируем статус и тело — тихий [] раньше незаметно отключал фильтр.
         logger.warning(f"Java /api/indicators вернул {response.status_code}: {response.text[:200]}")
     except Exception as e:
         logger.error(f"Ошибка получения показателей из Java: {e}")
@@ -236,9 +209,6 @@ async def generate_news(data: Dict[str, Any]):
     try:
         subject = data.get('subject', '')
         period = data.get('period', 90)
-        # Показатели передаём в парсер, чтобы новости соответствовали теме
-        # данных. Фильтр по теме мягкий (по корням слов + доменное
-        # расширение), поэтому не «съедает» все результаты, как раньше.
         indicators = data.get('indicators') or get_indicators_from_java()
         news = await get_news_summary_raw(subject, period, indicators)
         return {"news": news[:10] if news else []}

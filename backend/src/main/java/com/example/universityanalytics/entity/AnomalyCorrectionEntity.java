@@ -13,7 +13,7 @@ public class AnomalyCorrectionEntity {
     private Long id;
 
     @Column(name = "fact_id", nullable = false)
-    private Long factId;  // ID записи в таблице facts
+    private Long factId;
 
     @Column(name = "original_value", nullable = false)
     private Double originalValue;

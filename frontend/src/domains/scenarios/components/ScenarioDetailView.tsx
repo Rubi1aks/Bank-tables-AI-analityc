@@ -536,8 +536,7 @@ export function ScenarioDetailView({ scenario }: Props) {
                                         stroke={chartTheme.amber}
                                         strokeDasharray="4 4"
                                         strokeWidth={2}
-                                        label={{ value: 'Прогноз', position: 'top', fill: chartTheme.amber, fontSize: 12 }}
-                                    />
+                                                                  />
                                 )}
                             </LineChart>
                         </ResponsiveContainer>

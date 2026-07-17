@@ -213,7 +213,7 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
         const hasNodes = graph.nodes.length > 0
 
         if (!hasNodes || !hasEdges) {
-            aoa.push(['📊 Граф бизнес-модели'])
+            aoa.push(['Граф бизнес-модели'])
             aoa.push([])
             aoa.push(['Граф пуст.'])
             aoa.push(['Для отображения формул:'])
@@ -223,7 +223,7 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
             aoa.push(['4. Нажмите «Сохранить» для отправки формул на сервер'])
         } else {
             // ---------- РАЗДЕЛ 1: ФОРМУЛЫ ----------
-            aoa.push(['📊 ФОРМУЛЫ РАСЧЁТА'])
+            aoa.push(['ФОРМУЛЫ РАСЧЁТА'])
             aoa.push([])
 
             // Находим все узлы, у которых есть входящие рёбра (цели)
@@ -243,7 +243,7 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
             aoa.push([])
 
             // ---------- РАЗДЕЛ 2: УЗЛЫ ----------
-            aoa.push(['📋 УЗЛЫ ГРАФА'])
+            aoa.push(['УЗЛЫ ГРАФА'])
             aoa.push([])
             aoa.push(['Показатель', 'Значение', 'Ед. изм.', 'Тип'])
 
@@ -277,7 +277,7 @@ export function exportToExcel(opts: ExportOptions): ExportSummary {
 
             // ---------- РАЗДЕЛ 3: СВЯЗИ ----------
             if (hasEdges) {
-                aoa.push(['🔗 СВЯЗИ ГРАФА'])
+                aoa.push(['СВЯЗИ ГРАФА'])
                 aoa.push([])
                 aoa.push(['Из', 'Оператор', 'В'])
 

@@ -3,7 +3,6 @@ import type { Edge } from '@xyflow/react'
 import type { GraphNodeUnion } from '../lib/mapToFlow'
 
 const GRAPH_STORAGE_KEY = 'sber_graph_state'
-const GRAPH_VIEWED_KEY = 'sber_graph_viewed'
 
 type GraphNode = GraphNodeUnion
 
@@ -30,7 +29,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     savedNodes: null,
     savedEdges: null,
     hasSaved: false,
-    graphViewed: localStorage.getItem(GRAPH_VIEWED_KEY) === 'true',
+    graphViewed: false,
 
     setGraph: (nodes, edges) => {
         const data = {
@@ -63,7 +62,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     },
 
     markViewed: () => {
-        localStorage.setItem(GRAPH_VIEWED_KEY, 'true')
         set({ graphViewed: true })
     },
 
@@ -108,12 +106,12 @@ export const useGraphStore = create<GraphState>((set, get) => ({
             savedNodes: null,
             savedEdges: null,
             hasSaved: false,
+            graphViewed: false,
         })
     },
 
     clear: () => {
         localStorage.removeItem(GRAPH_STORAGE_KEY)
-        localStorage.removeItem(GRAPH_VIEWED_KEY)
         set({
             currentNodes: null,
             currentEdges: null,

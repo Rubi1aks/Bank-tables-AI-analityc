@@ -38,10 +38,6 @@ def gigachat_text(data: str) -> str:
         return f"Ошибка GigaChat: {str(e)}"
 
 
-# Маркеры отказа GigaChat. На острых/политических темах модель вместо JSON
-# присылает дисклеймер вроде «Генеративные языковые модели не обладают
-# собственным мнением…». Раньше это ловилось просто как «не JSON» — теперь
-# отличаем настоящий отказ, чтобы повторить запрос без таких новостей.
 _REFUSAL_MARKERS = (
     "не обладают собственным мнением",
     "обобщением информации",
@@ -55,9 +51,6 @@ _REFUSAL_MARKERS = (
     "чувствительн",
 )
 
-# Явно геополитические / военные слова. Для планирования доходов
-# (фермы, столовые, банк) такие новости — шум, и именно они провоцируют
-# отказ GigaChat. На повторной попытке выкидываем содержащие их строки.
 _SENSITIVE_WORDS = (
     "трамп", "байден", "путин", "зеленск", "иран", "израил", "украин",
     "всу", "нато", "ракет", "patriot", "патриот", "обстрел", "удар",
@@ -72,12 +65,6 @@ def _looks_like_refusal(text: str) -> bool:
 
 
 def _salvage_objects(text: str) -> list:
-    """Вытаскивает все синтаксически целые JSON-объекты {...} из строки.
-
-    Нужно, когда модель упёрлась в max_tokens и вернула обрезанный массив
-    (последний объект не закрыт, нет финальной «]»). Обычный json.loads на
-    таком падает — а здесь мы забираем все успевшие сформироваться новости,
-    игнорируя оборванный хвост."""
     objs = []
     depth = 0
     start = None
@@ -111,7 +98,6 @@ def _salvage_objects(text: str) -> list:
 
 
 def _parse_news_json(text: str):
-    """Достаёт JSON-массив из ответа модели. None — распарсить не удалось."""
     text = (text or "").strip()
     if "```json" in text:
         text = text.split("```json")[1].split("```")[0]
@@ -123,14 +109,12 @@ def _parse_news_json(text: str):
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Модель иногда добавляет текст вокруг JSON — вырезаем первый массив.
         m = re.search(r"\[.*\]", text, re.DOTALL)
         if m:
             try:
                 return json.loads(m.group(0))
             except json.JSONDecodeError:
                 pass
-        # Массив мог оборваться по лимиту токенов — спасаем целые объекты.
         salvaged = _salvage_objects(text)
         if salvaged:
             return salvaged
@@ -138,15 +122,12 @@ def _parse_news_json(text: str):
 
 
 def _strip_sensitive_lines(news_text: str) -> str:
-    """Убирает из списка новостей блоки с геополитикой/военной тематикой."""
     kept = [block for block in news_text.split("\n\n")
             if not any(w in block.lower() for w in _SENSITIVE_WORDS)]
     return "\n\n".join(kept)
 
 
 def _build_analyze_system_prompt(subject: str, indicators: List[str] = None) -> str:
-    """Инструкции для модели. Задача сформулирована как КЛАССИФИКАЦИЯ данных,
-    а не «выскажи мнение» — так GigaChat заметно реже уходит в отказ."""
     keywords = ", ".join(indicators) if indicators else "не заданы"
     region = subject if subject else "не задан"
     return f"""Ты — система классификации деловых новостей. Ты не высказываешь мнений и не комментируешь события — ты только извлекаешь данные и присваиваешь метки.
@@ -168,7 +149,6 @@ def _build_analyze_system_prompt(subject: str, indicators: List[str] = None) -> 
 
 
 def _call_giga_analyze(giga, system_prompt: str, news_text: str) -> str:
-    """Один вызов GigaChat: инструкции — в system-роли, новости — в user."""
     payload = Chat(
         model="GigaChat-2",
         messages=[
@@ -200,8 +180,6 @@ def gigachat_analyze_news(news_text: str, subject: str, indicators: List[str] = 
 
     try:
         with GigaChat(credentials=AUTH_TOKEN, verify_ssl_certs=False) as giga:
-            # Попытка 1 — полный список. Попытка 2 — без геополитики/военных
-            # новостей (частая причина отказа модели вернуть JSON).
             attempts = [news_text, _strip_sensitive_lines(news_text)]
             for i, body in enumerate(attempts):
                 if not body.strip():
@@ -217,8 +195,6 @@ def gigachat_analyze_news(news_text: str, subject: str, indicators: List[str] = 
                     return parsed
 
                 if _looks_like_refusal(raw):
-                    # Отказ на политику — пробуем ещё раз без острых новостей;
-                    # если это уже была вторая попытка, цикл просто завершится.
                     print(f"GigaChat отказался анализировать (попытка {i + 1}), "
                           f"повторяем без острых новостей")
                     continue
@@ -229,6 +205,3 @@ def gigachat_analyze_news(news_text: str, subject: str, indicators: List[str] = 
     except Exception as e:
         print(f"Ошибка GigaChat: {e}")
         return None
-
-def gigachat_anomalies(anomalies):
-    return "Аномалии не обнаружены"

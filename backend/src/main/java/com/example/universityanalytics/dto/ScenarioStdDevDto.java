@@ -10,6 +10,6 @@ import java.util.Map;
 @AllArgsConstructor
 public class ScenarioStdDevDto {
     private Double stdDev;
-    private Map<String, Double> lowerBounds;  // период -> нижняя граница
-    private Map<String, Double> upperBounds;  // период -> верхняя граница
+    private Map<String, Double> lowerBounds;
+    private Map<String, Double> upperBounds;
 }

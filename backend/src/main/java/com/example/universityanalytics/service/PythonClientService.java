@@ -69,10 +69,6 @@ public class PythonClientService {
                 log.info("ПОЛНЫЙ ОТВЕТ PYTHON ДЛЯ {}: {}", indicator, body);
 
                 JsonNode root = objectMapper.readTree(body);
-
-                // Ищем models:
-                // 1. Сначала по имени индикатора: root.get(indicator).get("models")
-                // 2. Потом на верхнем уровне: root.get("models")
                 JsonNode modelsNode = null;
                 if (root.has(indicator) && root.path(indicator).has("models")) {
                     modelsNode = root.path(indicator).path("models");
@@ -99,22 +95,6 @@ public class PythonClientService {
             log.error("Ошибка при вызове Python: {}", e.getMessage(), e);
             return null;
         }
-    }
-
-    public JsonNode callGenerateText(Map<String, Object> data) {
-        String url = pythonUrl + "/generate-text";
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(data, headers);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            if (response.getStatusCode() == HttpStatus.OK) {
-                return objectMapper.readTree(response.getBody());
-            }
-        } catch (Exception e) {
-            log.error("Python generate-text error: {}", e.getMessage());
-        }
-        return null;
     }
 
     public JsonNode callGenerateNews(Map<String, Object> data) {

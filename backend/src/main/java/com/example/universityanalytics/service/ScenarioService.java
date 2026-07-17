@@ -53,7 +53,6 @@ public class ScenarioService {
     public ScenarioDto generateScenario(ScenarioParamsDto params, String userId) {
         if (userId == null) userId = DEFAULT_USER;
 
-        // 1. Определяем список регионов
         List<String> regions = params.getRegions();
         if (regions == null || regions.isEmpty() || regions.contains("all")) {
             regions = factRepository.findDistinctSubjects();
@@ -66,12 +65,10 @@ public class ScenarioService {
 
         log.info("Регионы для прогноза: {}", regions);
 
-        // 2. Получаем граф
         BusinessGraphDto graph = graphService.getGraph(userId);
         Map<String, GraphNodeDto> nodeMap = graph.getNodes().stream()
                 .collect(Collectors.toMap(GraphNodeDto::getId, n -> n));
 
-        // 3. Находим целевой узел
         String targetId = nodeMap.entrySet().stream()
                 .filter(e -> e.getValue().getIndicator().equals(params.getTargetIndicator()))
                 .map(Map.Entry::getKey)
@@ -81,7 +78,6 @@ public class ScenarioService {
         boolean isDerived = targetId != null && nodeMap.get(targetId).getIsDerived() != null && nodeMap.get(targetId).getIsDerived();
         boolean useDirectForecast = params.getUseDirectForecast() != null && params.getUseDirectForecast();
 
-        // 4. Определяем, какие показатели прогнозировать напрямую
         Set<String> baseIndicators = new HashSet<>();
         boolean directForecast = useDirectForecast || !isDerived || targetId == null;
         if (!directForecast) {
@@ -92,7 +88,6 @@ public class ScenarioService {
 
         log.info("Для целевого {} базовые: {}", params.getTargetIndicator(), baseIndicators);
 
-        // 5. Для каждого региона и каждого базового показателя получаем прогнозы
         Map<String, Map<String, List<ModelForecastDto>>> regionBaseForecasts = new LinkedHashMap<>();
         Map<String, String> regionErrors = new HashMap<>();
 
@@ -130,7 +125,6 @@ public class ScenarioService {
             throw new RuntimeException(errorMsg);
         }
 
-        // 6. Вычисляем целевой (по формулам или прямой прогноз)
         Map<String, List<ModelForecastDto>> regionTargetForecasts = new LinkedHashMap<>();
 
         for (String region : regionBaseForecasts.keySet()) {
@@ -138,7 +132,6 @@ public class ScenarioService {
             if (baseForecasts == null || baseForecasts.isEmpty()) continue;
 
             if (!directForecast) {
-                // Вычисляем через формулы
                 List<ModelForecastDto> firstModelList = baseForecasts.values().iterator().next();
                 List<ModelForecastDto> targetModels = new ArrayList<>();
 
@@ -165,7 +158,6 @@ public class ScenarioService {
 
                 regionTargetForecasts.put(region, targetModels);
             } else {
-                // Прямой прогноз целевого
                 List<ModelForecastDto> targetModels = baseForecasts.get(params.getTargetIndicator());
                 if (targetModels != null && !targetModels.isEmpty()) {
                     regionTargetForecasts.put(region, targetModels);
@@ -178,8 +170,6 @@ public class ScenarioService {
             log.error(errorMsg);
             throw new RuntimeException(errorMsg);
         }
-
-        // 7. Собираем DTO
         ScenarioDto dto = new ScenarioDto();
         dto.setId(UUID.randomUUID().toString());
         dto.setTitle(params.getName());
@@ -190,12 +180,10 @@ public class ScenarioService {
         dto.setRegions(new ArrayList<>(regionTargetForecasts.keySet()));
         dto.setRegionForecasts(regionTargetForecasts);
 
-        // 8. Вычисляем СКО, byRegion и исторические данные для графиков
         Map<String, Double> stdDevMap = new LinkedHashMap<>();
         Map<String, ScenarioStdDevDto> stdDevDetails = new LinkedHashMap<>();
         List<ScenarioRegionValueDto> byRegionList = new ArrayList<>();
 
-        // Собираем исторические данные по регионам для целевого показателя
         Map<String, List<ScenarioPointDto>> historyByRegion = new LinkedHashMap<>();
         for (String region : regions) {
             List<FactEntity> regionFacts = factRepository.findBySubject(region);
@@ -208,11 +196,9 @@ public class ScenarioService {
         }
 
         for (String region : regionTargetForecasts.keySet()) {
-            // СКО по алгоритму из CKO.py
             double std = calculateStdDev(region, params.getTargetIndicator());
             stdDevMap.put(region, std);
 
-            // Доверительный интервал для прогноза (используем первую модель)
             List<ModelForecastDto> models = regionTargetForecasts.get(region);
             if (models != null && !models.isEmpty()) {
                 ModelForecastDto firstModel = models.get(0);
@@ -224,7 +210,6 @@ public class ScenarioService {
                         byRegionList.add(new ScenarioRegionValueDto(region, lastValue));
                     }
 
-                    // Доверительный интервал для прогноза: используем СКО и нормальное распределение (z=1.96 для 95%)
                     double z = 1.96;
                     Map<String, Double> lowerBounds = new LinkedHashMap<>();
                     Map<String, Double> upperBounds = new LinkedHashMap<>();
@@ -247,7 +232,6 @@ public class ScenarioService {
         dto.setGrowthRateStd(avgStd);
         dto.setDrivers(new ArrayList<>());
 
-        // Сохраняем
         ScenarioEntity entity = toEntity(dto);
         entity.setUserId(userId);
         scenarioRepository.save(entity);
@@ -257,17 +241,14 @@ public class ScenarioService {
     }
 
     public Map<String, Double> calculateDrivers(String scenarioId, String region) {
-        // 1. Получаем сценарий
         ScenarioDto scenario = getScenarioById(scenarioId);
         if (scenario == null) return Collections.emptyMap();
 
-        // 2. Получаем прогнозы для региона
         Map<String, List<ModelForecastDto>> regionForecasts = scenario.getRegionForecasts();
         if (regionForecasts == null || !regionForecasts.containsKey(region)) {
             return Collections.emptyMap();
         }
 
-        // 3. Берём лучшую модель (ранг 1)
         List<ModelForecastDto> models = regionForecasts.get(region);
         ModelForecastDto bestModel = models.stream()
                 .filter(m -> m.getRank() != null && m.getRank() == 1)
@@ -277,7 +258,6 @@ public class ScenarioService {
         Map<String, Double> forecast = bestModel.getForecast();
         if (forecast == null || forecast.isEmpty()) return Collections.emptyMap();
 
-        // 4. Определяем базовые показатели для целевого через граф
         BusinessGraphDto graph = graphService.getGraph();
         Map<String, GraphNodeDto> nodeMap = graph.getNodes().stream()
                 .collect(Collectors.toMap(GraphNodeDto::getId, n -> n));
@@ -293,7 +273,6 @@ public class ScenarioService {
         Set<String> baseIndicators = new HashSet<>();
         collectBaseIndicators(targetId, nodeMap, graph, baseIndicators);
 
-        // 5. Берём фактические данные для базовых показателей из БД
         Map<String, Double> baseStart = new HashMap<>();
         Map<String, Double> baseEnd = new HashMap<>();
 
@@ -310,14 +289,12 @@ public class ScenarioService {
             }
         }
 
-        // 6. Вычисляем изменение целевого показателя
         Double targetStart = baseStart.values().stream().mapToDouble(Double::doubleValue).sum();
         Double targetEnd = baseEnd.values().stream().mapToDouble(Double::doubleValue).sum();
         double targetDelta = targetEnd - targetStart;
 
         if (Math.abs(targetDelta) < 1e-9) return Collections.emptyMap();
 
-        // 7. Для каждого базового показателя вычисляем вклад
         Map<String, Double> driverContributions = new LinkedHashMap<>();
 
         for (String indicator : baseIndicators) {
@@ -325,12 +302,10 @@ public class ScenarioService {
             Double endVal = baseEnd.getOrDefault(indicator, 0.0);
             double delta = endVal - startVal;
 
-            // Вычисляем вклад с учётом производной (упрощённо: пропорционально изменению)
             double contribution = (delta / Math.abs(targetDelta)) * 100;
             driverContributions.put(indicator, contribution);
         }
 
-        // Нормализуем, чтобы сумма была 100%
         double sum = driverContributions.values().stream().mapToDouble(Double::doubleValue).sum();
         if (Math.abs(sum) > 1e-9) {
             for (Map.Entry<String, Double> entry : driverContributions.entrySet()) {
@@ -341,15 +316,12 @@ public class ScenarioService {
         return driverContributions;
     }
 
-    // Вспомогательный метод для получения сценария по ID
     private ScenarioDto getScenarioById(String id) {
         return scenarioRepository.findById(id)
                 .map(this::fromEntity)
                 .orElse(null);
     }
 
-
-    // ===== Приватные методы =====
 
     private List<ModelForecastDto> forecastIndicator(String region, String indicator, int horizon) {
         List<FactEntity> facts = factRepository.findBySubject(region);
@@ -508,9 +480,6 @@ public class ScenarioService {
         return history;
     }
 
-    /**
-     * Расчёт СКО исторических данных по алгоритму из CKO.py (десезонализация и удаление тренда)
-     */
     private double calculateStdDev(String region, String indicator) {
         List<FactEntity> facts = factRepository.findBySubject(region);
         if (facts.isEmpty()) return 0.0;
@@ -522,7 +491,6 @@ public class ScenarioService {
 
         if (filtered.size() < 12) return 0.0;
 
-        // 1. Средние по месяцам
         Map<Integer, Double> monthSums = new HashMap<>();
         Map<Integer, Integer> monthCounts = new HashMap<>();
         for (FactEntity f : filtered) {
@@ -544,7 +512,6 @@ public class ScenarioService {
             seasonality.put(m, overallAvg > 0 ? monthAvg.get(m) / overallAvg : 1.0);
         }
 
-        // 2. Дезонализируем и собираем остатки
         Map<Integer, List<Double>> yearlyDeseasonalized = new HashMap<>();
         for (FactEntity f : filtered) {
             String[] parts = f.getPeriod().split("-");

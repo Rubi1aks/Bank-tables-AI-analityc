@@ -32,7 +32,7 @@ def data_transformation(data: dict[str, dict[str, float]]) -> pd.Series:
             values[pd.Timestamp(year=year, month=month, day=1)] = metric
 
     series = pd.Series(values).sort_index()
-    series = series.asfreq("MS")  # MS = Month Start
+    series = series.asfreq("MS")
 
     return series
 
@@ -40,8 +40,8 @@ def data_transformation(data: dict[str, dict[str, float]]) -> pd.Series:
 def exponential_smoothing(series: pd.Series, n:int) -> pd.DataFrame:
     model = ExponentialSmoothing(
         series,
-        trend="add", # "add" - линейный рост, "mul" - процентный рост, None - тренда нет
-        seasonal="add", # "add" - сезонность фиксирована, "mul" - растёт вместе с метрикой, None - сезонности нет
+        trend="add",
+        seasonal="add",
         seasonal_periods=12
     )
     fit = model.fit()
@@ -52,11 +52,8 @@ def exponential_smoothing(series: pd.Series, n:int) -> pd.DataFrame:
 def sarimax_prediction(series: pd.Series, n:int) -> pd.DataFrame:
     model = SARIMAX(
         series,
-        order=(1,1,1), # (p, d, q)
-        # p - сколько прошлых точек влияет на текущую
-        # d - дифференцирование (0 - если тренда нет, ряд стабилен, 1 - убираем линейный рост, 2 - убирает квадратичный рост)
-        # q - ошибка модели
-        seasonal_order=(1,1,1,12) # (P, D, Q, s) то же самое но для сезонности
+        order=(1,1,1),
+        seasonal_order=(1,1,1,12)
     )
     fit = model.fit(disp=False)
     prediction = fit.forecast(n)
@@ -83,7 +80,7 @@ def prophet_prediction(series: pd.Series, n: int) -> pd.DataFrame:
 
 
 def stl_decomposition_prediction(series: pd.Series, n: int) -> pd.Series:
-    res = STL(series, period=12, robust=True).fit() # robust=True защищает от аномалий
+    res = STL(series, period=12, robust=True).fit()
 
     trend = res.trend
     x = np.arange(len(trend)).reshape(-1, 1)

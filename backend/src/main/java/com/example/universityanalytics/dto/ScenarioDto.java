@@ -20,8 +20,6 @@ public class ScenarioDto {
     private List<ScenarioPointDto> series;
     private Map<String, List<ScenarioPointDto>> seriesByIndicator;
     private List<ScenarioRegionValueDto> byRegion;
-
-    // Новые поля
     private Map<String, Double> stdDevByRegion;
     private Map<String, ScenarioStdDevDto> stdDevDetails;
     private Map<String, List<ScenarioPointDto>> historyByRegion;

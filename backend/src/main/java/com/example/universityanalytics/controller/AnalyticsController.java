@@ -31,8 +31,6 @@ public class AnalyticsController {
     private final UploadDataService uploadDataService;
     private final DriversService driversService;
     private final ScenarioService scenarioService;
-    private final SeasonalityService seasonalityService;
-    private final ForecastService forecastService;
     private final PythonClientService pythonClientService;
     private final GraphService graphService;
     private final AnomalyService anomalyService;
@@ -58,7 +56,7 @@ public class AnalyticsController {
     }
 
     // ========== Загрузка ==========
-    @PostMapping("/upload")
+    @PostMapping("/analytics/upload")
     public ResponseEntity<Map<String, String>> uploadFile(@RequestParam("file") MultipartFile file) {
         try {
             uploadDataService.uploadAndUpsert(file);
@@ -67,11 +65,6 @@ public class AnalyticsController {
             log.error("Ошибка загрузки", e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
-    }
-
-    @PostMapping("/analytics/upload")
-    public ResponseEntity<Map<String, String>> uploadFileAlt(@RequestParam("file") MultipartFile file) {
-        return uploadFile(file);
     }
 
     @GetMapping("/entities")
@@ -123,12 +116,6 @@ public class AnalyticsController {
     public ResponseEntity<ScenarioDto> createScenario(@RequestBody ScenarioParamsDto params,
                                                       @RequestParam(required = false) String userId) {
         return ResponseEntity.ok(scenarioService.generateScenario(params, userId));
-    }
-
-    @PostMapping("/scenarios/compute")
-    public ResponseEntity<ScenarioDto> computeScenario(@RequestBody ScenarioParamsDto params,
-                                                       @RequestParam(required = false) String userId) {
-        return createScenario(params, userId);
     }
 
     @DeleteMapping("/scenarios/{id}")
@@ -187,34 +174,6 @@ public class AnalyticsController {
         return ResponseEntity.ok(newsService.getNews(subject, period));
     }
 
-    @PostMapping("/news")
-    public ResponseEntity<List<NewsDto>> postNews(@RequestBody Map<String, Object> request) {
-        String subject = (String) request.getOrDefault("subject", "");
-        int period = request.containsKey("period") ? (int) request.get("period") : 90;
-        return ResponseEntity.ok(newsService.getNews(subject, period));
-    }
-
-    // ========== AI-аналитика ==========
-    @PostMapping("/ai/summary")
-    public ResponseEntity<Map<String, String>> getAiSummary(@RequestBody Map<String, String> request) {
-        String subject = request.get("subject");
-        if (subject == null || subject.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("summary", "Не указан регион"));
-        }
-        List<String> indicators = factRepository.findDistinctIndicators();
-        List<FactEntity> facts = factRepository.findBySubject(subject);
-        Map<String, Object> data = new HashMap<>();
-        data.put("subject", subject);
-        data.put("records", facts.size());
-        data.put("indicators", indicators);
-
-        JsonNode result = pythonClientService.callGenerateText(data);
-        if (result != null && result.has("summary")) {
-            return ResponseEntity.ok(Map.of("summary", result.path("summary").asText()));
-        }
-        return ResponseEntity.ok(Map.of("summary", "Аналитика временно недоступна."));
-    }
-
     // ========== Драйверы ==========
     @GetMapping("/analytics/drivers")
     public ResponseEntity<List<DriversService.DriverRow>> getDrivers(
@@ -234,49 +193,6 @@ public class AnalyticsController {
             log.error("Ошибка расчёта драйверов для сценария {}: {}", id, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-    }
-
-    // ========== Сезонность ==========
-    @GetMapping("/seasonality")
-    public ResponseEntity<Map<Integer, Double>> getSeasonality(
-            @RequestParam String subject,
-            @RequestParam String indicator) {
-        return ResponseEntity.ok(seasonalityService.calculateSeasonality(subject, indicator));
-    }
-
-    // ========== Прогноз ==========
-    @GetMapping("/forecast")
-    public ResponseEntity<Map<String, Object>> getForecast(
-            @RequestParam String subject,
-            @RequestParam String indicator,
-            @RequestParam(defaultValue = "6") int horizon,
-            @RequestParam(defaultValue = "sarimax") String method) {
-        return ResponseEntity.ok(forecastService.generateForecast(subject, indicator, horizon, method));
-    }
-
-    // ========== Экспорт ==========
-    @GetMapping("/export/csv")
-    public ResponseEntity<byte[]> exportToCsv(@RequestParam(required = false) String subject) throws IOException {
-        List<FactEntity> data = (subject != null && !subject.isEmpty())
-                ? factRepository.findBySubject(subject)
-                : factRepository.findAll();
-
-        StringBuilder csv = new StringBuilder("\uFEFF");
-        csv.append("Период;Округ;Субъект;Показатель;Ед.изм.;Значение\n");
-        for (FactEntity e : data) {
-            csv.append(String.format("%s;%s;%s;%s;%s;%.2f\n",
-                    e.getPeriod(),
-                    e.getDistrict() != null ? e.getDistrict() : "",
-                    e.getSubject(),
-                    e.getIndicator(),
-                    e.getUnit() != null ? e.getUnit() : "",
-                    e.getValue()));
-        }
-        byte[] content = csv.toString().getBytes(StandardCharsets.UTF_8);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-        headers.setContentDispositionFormData("attachment", "analytics_export.csv");
-        return ResponseEntity.ok().headers(headers).body(content);
     }
 
     // ========== Очистка ==========

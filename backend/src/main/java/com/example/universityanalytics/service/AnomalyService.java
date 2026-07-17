@@ -26,17 +26,12 @@ public class AnomalyService {
     private final FactRepository factRepository;
     private final AnomalyCorrectionRepository correctionRepository;
 
-    // Кэш всех фактов (загружается один раз, инвалидируется при изменениях)
     private List<FactEntity> cachedFacts = null;
     private final Object cacheLock = new Object();
 
-    // Кэш для быстрого доступа к группам (indicator|subject) → список значений по месяцам
     private Map<String, Map<Integer, List<Double>>> cachedGroups = null;
     private final Object groupsLock = new Object();
 
-    /**
-     * Загружает факты из БД в кэш (если он пуст или устарел).
-     */
     private void loadCache() {
         if (cachedFacts == null) {
             synchronized (cacheLock) {
@@ -55,9 +50,6 @@ public class AnomalyService {
         }
     }
 
-    /**
-     * Строит кэш групп: ключ = "indicator|subject", значение = Map<месяц, List<значения>>.
-     */
     private void buildGroupCache(List<FactEntity> facts) {
         cachedGroups = new ConcurrentHashMap<>();
         for (FactEntity f : facts) {
@@ -67,7 +59,6 @@ public class AnomalyService {
                     .computeIfAbsent(month, m -> new ArrayList<>())
                     .add(f.getValue());
         }
-        // Сортируем списки для быстрого вычисления квартилей и медиан
         for (Map<Integer, List<Double>> monthMap : cachedGroups.values()) {
             for (List<Double> vals : monthMap.values()) {
                 Collections.sort(vals);
@@ -75,10 +66,6 @@ public class AnomalyService {
         }
         log.info("Построен кэш групп, всего групп: {}", cachedGroups.size());
     }
-
-    /**
-     * Инвалидирует кэш при изменении данных.
-     */
     private void invalidateCache() {
         synchronized (cacheLock) {
             cachedFacts = null;
@@ -88,17 +75,12 @@ public class AnomalyService {
         }
         log.info("Кэш аномалий инвалидирован");
     }
-
-    /**
-     * Детектирует аномалии по новому алгоритму (IQR с k=2.5) с использованием кэша.
-     */
     public List<AnomalyDto> detectAnomalies(String subject, String indicator, Double threshold) {
-        loadCache(); // гарантируем наличие кэша
+        loadCache();
 
         double k = threshold != null ? threshold : 2.5;
         List<AnomalyDto> anomalies = new ArrayList<>();
 
-        // Фильтруем группы по subject и indicator
         for (String key : cachedGroups.keySet()) {
             String[] parts = key.split("\\|");
             String ind = parts[0];
@@ -107,7 +89,7 @@ public class AnomalyService {
             if (indicator != null && !indicator.isEmpty() && !ind.equals(indicator)) continue;
 
             Map<Integer, List<Double>> monthMap = cachedGroups.get(key);
-            if (monthMap.size() < 5) continue; // слишком мало данных для статистики
+            if (monthMap.size() < 5) continue;
 
             for (Map.Entry<Integer, List<Double>> entry : monthMap.entrySet()) {
                 int month = entry.getKey();
@@ -120,7 +102,6 @@ public class AnomalyService {
                 double low = q1 - k * iqr;
                 double high = q3 + k * iqr;
 
-                // Чистая медиана (без аномалий)
                 List<Double> cleanVals = new ArrayList<>();
                 for (double v : sortedVals) {
                     if (v >= low && v <= high) cleanVals.add(v);
@@ -137,7 +118,6 @@ public class AnomalyService {
                             sortedVals.get(sortedVals.size() / 2);
                 }
 
-                // Проверяем каждое значение в группе, используя кэш фактов
                 for (FactEntity f : cachedFacts) {
                     if (!f.getIndicator().equals(ind) || !f.getSubject().equals(subj)) continue;
                     int factMonth = Integer.parseInt(f.getPeriod().split("-")[1]);
@@ -164,17 +144,12 @@ public class AnomalyService {
         return anomalies;
     }
 
-    /**
-     * Заменяет аномалии на очищенные значения (использует кэш, инвалидирует после изменения).
-     */
     @Transactional
     public int replaceAnomalies(String subject, String indicator, Double threshold, String userId) {
         if (userId == null) userId = DEFAULT_USER;
         if (correctionRepository.existsByUserId(userId)) {
             throw new IllegalStateException("Аномалии уже были заменены. Сначала восстановите исходные данные.");
         }
-
-        // Принудительно загружаем актуальные данные из БД (кэш может быть устаревшим)
         invalidateCache();
         List<FactEntity> allFacts = factRepository.findAll();
         if (subject != null && !subject.isEmpty()) {
@@ -196,7 +171,6 @@ public class AnomalyService {
             List<FactEntity> group = entry.getValue();
             if (group.size() < 5) continue;
 
-            // Группируем факты по месяцам
             Map<Integer, List<FactEntity>> monthFacts = new HashMap<>();
             for (FactEntity f : group) {
                 int month = Integer.parseInt(f.getPeriod().split("-")[1]);
@@ -216,7 +190,6 @@ public class AnomalyService {
                 double low = q1 - k * iqr;
                 double high = q3 + k * iqr;
 
-                // Вычисляем ЧИСТУЮ медиану
                 List<Double> cleanVals = new ArrayList<>();
                 for (double v : allVals) {
                     if (v >= low && v <= high) {
@@ -236,7 +209,6 @@ public class AnomalyService {
                             allVals.get(allVals.size() / 2);
                 }
 
-                // Фиксируем аномалии и готовим обновления для базы данных
                 for (FactEntity f : fList) {
                     if (f.getValue() < low || f.getValue() > high) {
                         AnomalyCorrectionEntity correction = new AnomalyCorrectionEntity();
@@ -250,7 +222,6 @@ public class AnomalyService {
                         correction.setUserId(userId);
                         corrections.add(correction);
 
-                        // Заменяем значение факта на чистую медиану
                         f.setValue(cleanMedian);
                         toUpdate.add(f);
                     }
@@ -265,16 +236,12 @@ public class AnomalyService {
         correctionRepository.saveAll(corrections);
         factRepository.saveAll(toUpdate);
 
-        // Инвалидируем кэш после изменения данных
         invalidateCache();
 
         log.info("Заменено {} аномалий для пользователя {}", corrections.size(), userId);
         return corrections.size();
     }
 
-    /**
-     * Восстанавливает исходные данные из коррекций.
-     */
     @Transactional
     public int restoreAnomalies(String userId) {
         if (userId == null) userId = DEFAULT_USER;
@@ -291,7 +258,6 @@ public class AnomalyService {
         factRepository.saveAll(toUpdate);
         correctionRepository.deleteByUserId(userId);
 
-        // Инвалидируем кэш после восстановления данных
         invalidateCache();
 
         log.info("Восстановлено {} аномалий для пользователя {}", corrections.size(), userId);
@@ -306,7 +272,6 @@ public class AnomalyService {
     @Transactional
     public void clearAllCorrections() {
         correctionRepository.deleteAll();
-        // Инвалидируем кэш, так как данные могли измениться (восстановление оригиналов)
         invalidateCache();
     }
 

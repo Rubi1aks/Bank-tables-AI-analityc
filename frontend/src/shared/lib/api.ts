@@ -62,8 +62,6 @@ export const api = {
     // ========== Факты и справочники ==========
     getFacts: () => request<FactRow[]>('/api/facts'),
     getEntities: () => request<DetectedEntity[]>('/api/entities'),
-    getRegions: () => request<string[]>('/api/regions'),
-    getIndicators: () => request<string[]>('/api/indicators'),
 
     // ========== Загрузка данных ==========
     uploadAnalytics: (file: File) => {
@@ -92,14 +90,6 @@ export const api = {
             method: 'POST',
             body: JSON.stringify(params),
         }),
-    /** Совместимость со старым computeScenario */
-    computeScenario: (params: ScenarioParams) =>
-        heavyLimiter.schedule(() =>
-            request<Scenario>('/api/scenarios/compute', {
-                method: 'POST',
-                body: JSON.stringify(params),
-            })
-        ),
 
 
     deleteScenario: (id: string) =>
@@ -140,9 +130,6 @@ export const api = {
         return request<NewsCard[]>(`/api/news?${params.toString()}`)
     },
 
-    // ========== AI-резюме ==========
-    getAiSummary: (subject: string) =>
-        request<AiSummaryResponse>(`/api/ai/summary?subject=${encodeURIComponent(subject)}`),
 
     // ========== Драйверы ==========
     getDrivers: (subject: string, indicator: string) =>
@@ -151,20 +138,7 @@ export const api = {
     getScenarioDrivers: (scenarioId: string, region: string) =>
         request<Record<string, number>>(`/api/scenarios/${scenarioId}/drivers?region=${encodeURIComponent(region)}`),
 
-    // ========== Сезонность ==========
-    getSeasonality: (subject: string, indicator: string) =>
-        request<Record<number, number>>(`/api/seasonality?subject=${encodeURIComponent(subject)}&indicator=${encodeURIComponent(indicator)}`),
-
-    // ========== Прогноз ==========
-    getForecast: (subject: string, indicator: string, horizon: number = 6, method: string = 'sarimax') =>
-        request<any>(`/api/forecast?subject=${encodeURIComponent(subject)}&indicator=${encodeURIComponent(indicator)}&horizon=${horizon}&method=${method}`),
-
-    // ========== Экспорт ==========
-    exportCsv: (subject?: string) =>
-        request<Blob>(`/api/export/csv${subject ? `?subject=${encodeURIComponent(subject)}` : ''}`, {
-            headers: { Accept: 'application/octet-stream' },
-        }),
-
+  
     // ========== Очистка (тест) ==========
     cleanDatabase: () =>
         request<{ status: string; message: string }>('/api/clean', { method: 'DELETE' }),

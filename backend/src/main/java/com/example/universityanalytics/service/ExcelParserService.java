@@ -162,42 +162,29 @@ public class ExcelParserService {
         }
     }
 
-    /**
-     * Универсальное чтение периода из ячейки
-     */
     private String getPeriodFromCell(Cell cell) {
         if (cell == null) return null;
 
-        // === СЛУЧАЙ 1: Ячейка содержит ДАТУ (число с форматом даты) ===
         if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
             Date date = cell.getDateCellValue();
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM");
             return sdf.format(date);
         }
-
-        // === СЛУЧАЙ 2: Ячейка содержит ЧИСЛО (Excel дата как число) ===
         if (cell.getCellType() == CellType.NUMERIC) {
             double num = cell.getNumericCellValue();
-            // Excel даты: 1 января 1900 = 1, 1 января 2015 = 42004
             if (num > 1000 && num < 50000) {
                 LocalDate date = LocalDate.of(1900, 1, 1).plusDays((long) num - 2);
                 return String.format("%d-%02d", date.getYear(), date.getMonthValue());
             }
-            // Если число не похоже на дату, пробуем как строку
             String raw = String.valueOf((long) num);
             return normalizePeriod(raw);
         }
-
-        // === СЛУЧАЙ 3: Ячейка содержит СТРОКУ ===
         String raw = getStringValue(cell);
         if (raw == null || raw.isEmpty()) return null;
 
         return normalizePeriod(raw);
     }
 
-    /**
-     * Нормализация периода в формат YYYY-MM
-     */
     private String normalizePeriod(String raw) {
         if (raw == null || raw.isEmpty()) return null;
 
@@ -205,23 +192,16 @@ public class ExcelParserService {
                 .replace('\u00A0', ' ')
                 .replaceAll("\\s+", " ")
                 .trim();
-
-        // Уже YYYY-MM
         if (raw.matches("\\d{4}-\\d{2}")) {
             return raw;
         }
-
-        // "Январь 15" или "Янв 15"
-        // Пробуем через поиск месяца
         String lower = raw.toLowerCase();
         for (Map.Entry<String, Integer> entry : MONTH_MAP.entrySet()) {
             if (lower.contains(entry.getKey())) {
                 String monthName = entry.getKey();
                 Integer month = entry.getValue();
-                // Ищем цифры ПОСЛЕ месяца
                 int monthIdx = lower.indexOf(monthName) + monthName.length();
                 String after = raw.substring(Math.min(monthIdx, raw.length())).trim();
-                // Извлекаем все цифры
                 String digits = after.replaceAll("[^0-9]", "");
                 if (!digits.isEmpty()) {
                     try {
@@ -231,24 +211,20 @@ public class ExcelParserService {
                             return String.format("%d-%02d", year, month);
                         }
                     } catch (NumberFormatException e) {
-                        // игнорируем
                     }
                 }
                 break;
             }
         }
 
-        // "2025-01-01"
         if (raw.matches("\\d{4}-\\d{2}-\\d{2}.*")) {
             try {
                 String[] parts = raw.split("-");
                 return String.format("%d-%02d", Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
             } catch (Exception e) {
-                // игнорируем
             }
         }
 
-        // "01.2025" или "01/2025"
         if (raw.matches("\\d{1,2}[/.]\\d{4}")) {
             try {
                 String[] parts = raw.split("[/.]");
@@ -258,11 +234,8 @@ public class ExcelParserService {
                     return String.format("%d-%02d", year, month);
                 }
             } catch (Exception e) {
-                // игнорируем
             }
         }
-
-        // "2025.01" или "2025/01"
         if (raw.matches("\\d{4}[/.]\\d{1,2}")) {
             try {
                 String[] parts = raw.split("[/.]");
@@ -272,7 +245,6 @@ public class ExcelParserService {
                     return String.format("%d-%02d", year, month);
                 }
             } catch (Exception e) {
-                // игнорируем
             }
         }
 

@@ -50,11 +50,8 @@ public class GraphService {
 
     @Transactional
     public void saveGraph(BusinessGraphDto graph, String userId) {
-        // Удаляем старые данные
         nodeRepository.deleteByUserId(userId);
         edgeRepository.deleteByUserId(userId);
-
-        // Сохраняем узлы
         List<GraphNodeEntity> nodeEntities = new ArrayList<>();
         if (graph.getNodes() != null) {
             for (GraphNodeDto n : graph.getNodes()) {
@@ -67,7 +64,6 @@ public class GraphService {
                 e.setPositionX(n.getPositionX());
                 e.setPositionY(n.getPositionY());
                 e.setUserId(userId);
-                // СОХРАНЯЕМ kind
                 e.setKind(n.getKind() != null ? n.getKind() : "indicator");
                 nodeEntities.add(e);
             }
@@ -75,8 +71,6 @@ public class GraphService {
         if (!nodeEntities.isEmpty()) {
             nodeRepository.saveAll(nodeEntities);
         }
-
-        // Сохраняем рёбра
         List<GraphEdgeEntity> edgeEntities = new ArrayList<>();
         if (graph.getEdges() != null) {
             for (GraphEdgeDto e : graph.getEdges()) {
