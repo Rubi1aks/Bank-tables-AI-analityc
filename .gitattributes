@@ -1,0 +1,12 @@
+*.java linguist-language=Java
+*.kt linguist-language=Java
+*.xml linguist-language=Java
+
+*.py linguist-language=Python
+
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+
+*.min.js linguist-vendored
+*.min.css linguist-vendored
+package-lock.json linguist-vendored
